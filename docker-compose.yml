@@ -1,0 +1,43 @@
+services:
+  # -------------------------------------------------------------
+  # 1. PostgreSQL Database (Salary & Profession Core Engine)
+  # -------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: piyasa_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: piyasa_user
+      POSTGRES_PASSWORD: piyasa_secret_password
+      POSTGRES_DB: piyasa_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U piyasa_user -d piyasa_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -------------------------------------------------------------
+  # 2. Ghost CMS (Headless Editorial, Blog & Newsletter)
+  # -------------------------------------------------------------
+  ghost:
+    image: ghost:5-alpine
+    container_name: piyasa_ghost
+    restart: unless-stopped
+    ports:
+      - "2368:2368"
+    environment:
+      # Local development URL
+      url: http://localhost:2368
+      NODE_ENV: development
+    volumes:
+      - ghost_data:/var/lib/ghost/content
+
+volumes:
+  postgres_data:
+    driver: local
+  ghost_data:
+    driver: local

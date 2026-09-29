@@ -1,0 +1,422 @@
+// Prisma Schema for Piyasa (piyasa.work)
+// Türkiye İş Piyasası Veri Platformu
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  USER
+  ANALYST
+  MODERATOR
+  ADMIN
+}
+
+enum SourceGrade {
+  A // Resmi / Kurumsal (TÜİK, SGK, Resmi Gazete)
+  B // Sendika / Toplu Sözleşme (TİS)
+  C // Doğrulanmış İş İlanı
+  D // Kullanıcı Bildirimi (Doğrulanmış Saha Verisi)
+  E // Bağımsız Araştırma / Rapor
+  F // Editoryal / Piyasa Tahmin Modeli
+}
+
+enum SubmissionStatus {
+  SUBMITTED
+  AI_REVIEW
+  FLAGGED
+  HUMAN_REVIEW
+  APPROVED
+  REJECTED
+  AGGREGATED
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  FREELANCE
+}
+
+enum SalaryType {
+  NET
+  GROSS
+}
+
+enum Currency {
+  TRY
+  USD
+  EUR
+}
+
+model User {
+  id           String       @id @default(uuid())
+  email        String       @unique
+  name         String
+  role         Role         @default(USER)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  reviews      DataReview[]
+  changeLogs   DataChangeLog[]
+
+  @@map("users")
+}
+
+model ProfessionCategory {
+  id          String       @id @default(uuid())
+  name        String       @unique
+  slug        String       @unique
+  description String?
+  icon        String?
+  professions Profession[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@map("profession_categories")
+}
+
+model Profession {
+  id              String             @id @default(uuid())
+  title           String             @unique
+  slug            String             @unique
+  summary         String
+  description     String?
+  categoryId      String
+  category        ProfessionCategory @relation(fields: [categoryId], references: [id])
+  isVerified      Boolean            @default(true)
+  viewCount       Int                @default(0)
+  
+  aliases         ProfessionAlias[]
+  salaryRecords   SalaryRecord[]
+  salaryStats     SalaryStatistics[]
+  submissions     SalarySubmission[]
+  careerPaths     CareerPath[]
+  jobListings     JobListing[]
+  companySalaries CompanySalary[]
+  certifications  ProfessionCertification[]
+  skills          ProfessionSkill[]
+  
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([slug])
+  @@map("professions")
+}
+
+model ProfessionAlias {
+  id              String     @id @default(uuid())
+  alias           String     @unique
+  normalizedTitle String
+  professionId    String
+  profession      Profession @relation(fields: [professionId], references: [id], onDelete: Cascade)
+  createdAt       DateTime   @default(now())
+
+  @@index([alias])
+  @@map("profession_aliases")
+}
+
+model CareerLevel {
+  id              String          @id @default(uuid())
+  name            String          @unique // Junior, Mid, Senior, Lead, Manager, Director
+  slug            String          @unique
+  levelOrder      Int             @unique
+  description     String?
+  salaryRecords   SalaryRecord[]
+  companySalaries CompanySalary[]
+  careerPathsFrom CareerPath[]    @relation("PathFrom")
+  careerPathsTo   CareerPath[]    @relation("PathTo")
+
+  @@map("career_levels")
+}
+
+model City {
+  id            String             @id @default(uuid())
+  name          String             @unique
+  slug          String             @unique
+  plateCode     Int?               @unique
+  region        String?
+  salaryRecords SalaryRecord[]
+  submissions   SalarySubmission[]
+  companies     Company[]
+  jobListings   JobListing[]
+
+  @@map("cities")
+}
+
+model Sector {
+  id            String             @id @default(uuid())
+  name          String             @unique
+  slug          String             @unique
+  description   String?
+  salaryRecords SalaryRecord[]
+  submissions   SalarySubmission[]
+  companies     Company[]
+
+  @@map("sectors")
+}
+
+model SalarySource {
+  id               String         @id @default(uuid())
+  name             String
+  slug             String         @unique
+  grade            SourceGrade
+  url              String?
+  description      String?
+  reliabilityScore Float          @default(0.8)
+  salaryRecords    SalaryRecord[]
+  createdAt        DateTime       @default(now())
+
+  @@map("salary_sources")
+}
+
+model SalaryRecord {
+  id              String         @id @default(uuid())
+  professionId    String
+  profession      Profession     @relation(fields: [professionId], references: [id], onDelete: Cascade)
+  careerLevelId   String
+  careerLevel     CareerLevel    @relation(fields: [careerLevelId], references: [id])
+  cityId          String?
+  city            City?          @relation(fields: [cityId], references: [id])
+  sectorId        String?
+  sector          Sector?        @relation(fields: [sectorId], references: [id])
+  employmentType  EmploymentType @default(FULL_TIME)
+  
+  experienceMin   Int            @default(0)
+  experienceMax   Int            @default(1)
+  
+  salaryMin       Float
+  salaryP25       Float
+  salaryMedian    Float
+  salaryP75       Float
+  salaryMax       Float
+  
+  currency        Currency       @default(TRY)
+  grossOrNet      SalaryType     @default(NET)
+  bonusIncluded   Boolean        @default(false)
+  
+  sampleSize      Int            @default(1)
+  confidenceLevel Float          @default(0.75)
+  sourceId        String
+  source          SalarySource   @relation(fields: [sourceId], references: [id])
+  methodology     String?
+  dataDate        DateTime       @default(now())
+  
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([professionId, careerLevelId])
+  @@map("salary_records")
+}
+
+model SalaryStatistics {
+  id             String     @id @default(uuid())
+  professionId   String
+  profession     Profession @relation(fields: [professionId], references: [id], onDelete: Cascade)
+  year           Int
+  medianNominal  Float
+  medianAdjusted Float?
+  changePercent  Float?
+  sampleSize     Int
+  createdAt      DateTime   @default(now())
+
+  @@unique([professionId, year])
+  @@map("salary_statistics")
+}
+
+model SalarySubmission {
+  id              String           @id @default(uuid())
+  professionId    String
+  profession      Profession       @relation(fields: [professionId], references: [id])
+  cityId          String?
+  city            City?            @relation(fields: [cityId], references: [id])
+  sectorId        String?
+  sector          Sector?          @relation(fields: [sectorId], references: [id])
+  employmentType  EmploymentType   @default(FULL_TIME)
+  experienceYears Int
+  salaryAmount    Float
+  grossOrNet      SalaryType       @default(NET)
+  bonusIncluded   Boolean          @default(false)
+  companySize     String?
+  optionalComment String?          // Kesinlikle PII kabul edilmez
+  
+  status          SubmissionStatus @default(SUBMITTED)
+  aiModerationLog String?          // Gemini/AI moderatör değerlendirmesi
+  ipHash          String?          // Anonim rate-limit kontrolü için tuzlanmış hash
+  
+  reviews         DataReview[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@map("salary_submissions")
+}
+
+model Company {
+  id                 String          @id @default(uuid())
+  name               String          @unique
+  slug               String          @unique
+  sectorId           String?
+  sector             Sector?         @relation(fields: [sectorId], references: [id])
+  cityId             String?
+  city               City?           @relation(fields: [cityId], references: [id])
+  website            String?
+  employeeCountRange String?         // 1-10, 11-50, 51-250, 250+
+  isFeatured         Boolean         @default(false)
+  
+  jobListings        JobListing[]
+  companySalaries    CompanySalary[]
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@map("companies")
+}
+
+model CompanySalary {
+  id            String      @id @default(uuid())
+  companyId     String
+  company       Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  professionId  String
+  profession    Profession  @relation(fields: [professionId], references: [id], onDelete: Cascade)
+  careerLevelId String
+  careerLevel   CareerLevel @relation(fields: [careerLevelId], references: [id])
+  salaryMedian  Float
+  sampleSize    Int         @default(1)
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([companyId, professionId, careerLevelId])
+  @@map("company_salaries")
+}
+
+model Certification {
+  id             String                    @id @default(uuid())
+  name           String                    @unique
+  slug           String                    @unique
+  issuer         String
+  description    String?
+  professions    ProfessionCertification[]
+  affiliateOffers AffiliateOffer[]
+  createdAt      DateTime                  @default(now())
+
+  @@map("certifications")
+}
+
+model ProfessionCertification {
+  professionId    String
+  profession      Profession    @relation(fields: [professionId], references: [id], onDelete: Cascade)
+  certificationId String
+  certification   Certification @relation(fields: [certificationId], references: [id], onDelete: Cascade)
+  importance      String?       // Zorunlu, Tercih Sebebi, Avantaj
+
+  @@id([professionId, certificationId])
+  @@map("profession_certifications")
+}
+
+model Skill {
+  id          String            @id @default(uuid())
+  name        String            @unique
+  slug        String            @unique
+  category    String?           // Teknik, Yabancı Dil, Metodoloji, Liderlik
+  professions ProfessionSkill[]
+
+  @@map("skills")
+}
+
+model ProfessionSkill {
+  professionId String
+  profession   Profession @relation(fields: [professionId], references: [id], onDelete: Cascade)
+  skillId      String
+  skill        Skill      @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@id([professionId, skillId])
+  @@map("profession_skills")
+}
+
+model CareerPath {
+  id           String      @id @default(uuid())
+  professionId String
+  profession   Profession  @relation(fields: [professionId], references: [id], onDelete: Cascade)
+  fromLevelId  String
+  fromLevel    CareerLevel @relation("PathFrom", fields: [fromLevelId], references: [id])
+  toLevelId    String
+  toLevel      CareerLevel @relation("PathTo", fields: [toLevelId], references: [id])
+  typicalYears Int         @default(2)
+  requirements String?
+
+  @@map("career_paths")
+}
+
+model JobListing {
+  id             String         @id @default(uuid())
+  title          String
+  companyId      String
+  company        Company        @relation(fields: [companyId], references: [id])
+  professionId   String
+  profession     Profession     @relation(fields: [professionId], references: [id])
+  cityId         String?
+  city           City?          @relation(fields: [cityId], references: [id])
+  salaryMin      Float?
+  salaryMax      Float?
+  employmentType EmploymentType @default(FULL_TIME)
+  sourceUrl      String
+  isActive       Boolean        @default(true)
+  publishedAt    DateTime       @default(now())
+  expiresAt      DateTime?
+
+  @@map("job_listings")
+}
+
+model Newsletter {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  frequency  String   @default("WEEKLY") // WEEKLY, MONTHLY_REPORT
+  isVerified Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@map("newsletters")
+}
+
+model AffiliateOffer {
+  id              String        @id @default(uuid())
+  title           String
+  provider        String        // Coursera, Udemy, vb.
+  certificationId String?
+  certification   Certification? @relation(fields: [certificationId], references: [id])
+  targetUrl       String
+  commissionType  String?
+  disclosure      String        @default("Sponsorlu ortaklık bağlantısıdır.")
+  active          Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+
+  @@map("affiliate_offers")
+}
+
+model DataReview {
+  id           String           @id @default(uuid())
+  submissionId String
+  submission   SalarySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  reviewerId   String?
+  reviewer     User?            @relation(fields: [reviewerId], references: [id])
+  action       SubmissionStatus
+  reviewNotes  String?
+  createdAt    DateTime         @default(now())
+
+  @@map("data_reviews")
+}
+
+model DataChangeLog {
+  id           String   @id @default(uuid())
+  entityName   String
+  entityId     String
+  changeType   String   // CREATE, UPDATE, DELETE
+  previousData String?  // JSON
+  newData      String?  // JSON
+  changedById  String?
+  changedBy    User?    @relation(fields: [changedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@map("data_change_logs")
+}

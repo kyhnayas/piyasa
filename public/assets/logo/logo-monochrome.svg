@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 64" fill="none" role="img" aria-label="Piyasa Logo Monochrome">
+  <g id="logo-symbol-mono">
+    <rect x="12" y="14" width="7" height="36" rx="3.5" fill="#000000"/>
+    <path d="M19 14H32C37.5228 14 42 18.4772 42 24C42 29.5228 37.5228 34 32 34H19" stroke="#000000" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="29" cy="24" r="4.5" fill="#000000"/>
+    <line x1="12" y1="50" x2="42" y2="50" stroke="#000000" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+  <text x="60" y="41" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="30" font-weight="800" letter-spacing="-0.03em" fill="#000000">
+    Piyasa
+  </text>
+  <rect x="180" y="24" width="46" height="18" rx="4" fill="#000000"/>
+  <text x="186" y="37" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="10" font-weight="700" letter-spacing="0.04em" fill="#FFFFFF">
+    .WORK
+  </text>
+</svg>

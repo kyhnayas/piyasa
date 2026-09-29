@@ -1,0 +1,120 @@
+---
+import {
+	getEmDashEntry,
+	getSeoMeta,
+	decodeSlug,
+} from "emdash";
+import { PortableText } from "emdash/ui";
+import Base from "../../layouts/Base.astro";
+import { getReadingTime } from "../../utils/reading-time";
+
+const slug = decodeSlug(Astro.params.slug);
+
+if (!slug) {
+	return Astro.redirect("/404");
+}
+
+const { entry: post, cacheHint } = await getEmDashEntry("posts", slug);
+
+if (!post) {
+	return Astro.redirect("/404");
+}
+
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+
+const seo = getSeoMeta(post, {
+	siteTitle: `${post.data.title} | Piyasa Rehber`,
+	siteUrl: "https://piyasa.work",
+	path: `/rehber/${slug}`,
+});
+
+const formatDate = (date: Date) =>
+	date.toLocaleDateString("tr-TR", {
+		year: "numeric",
+		month: "long",
+		day: "numeric",
+	});
+---
+
+<Base title={seo.title} description={seo.description}>
+	<article class="rehber-article" style="max-width: 800px; margin: 0 auto; padding: 2.5rem 1rem;">
+		<!-- Breadcrumbs for SEO -->
+		<nav aria-label="Breadcrumb" style="font-size: 0.875rem; margin-bottom: 1.5rem; color: var(--color-text-secondary);">
+			<ol style="display: flex; list-style: none; padding: 0; margin: 0; gap: 0.5rem; align-items: center;">
+				<li><a href="/" style="color: var(--color-text-secondary); text-decoration: none;">Piyasa</a></li>
+				<li><span style="color: var(--color-muted);">/</span></li>
+				<li><a href="/rehber" style="color: var(--color-text-secondary); text-decoration: none;">Rehber</a></li>
+				<li><span style="color: var(--color-muted);">/</span></li>
+				<li aria-current="page" style="color: var(--color-text); font-weight: 500;">{post.data.title}</li>
+			</ol>
+		</nav>
+
+		<header class="article-header" style="margin-bottom: 2rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1.5rem;">
+			<h1 style="font-size: 2.5rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1.2; margin: 0 0 1rem 0; color: var(--color-text);">
+				{post.data.title}
+			</h1>
+
+			{post.data.excerpt && (
+				<p style="font-size: 1.25rem; line-height: 1.6; color: var(--color-text-secondary); margin: 0 0 1.25rem 0;">
+					{post.data.excerpt}
+				</p>
+			)}
+
+			<div style="display: flex; align-items: center; gap: 1rem; font-size: 0.875rem; color: var(--color-muted);">
+				{post.data.publishedAt && (
+					<time datetime={typeof post.data.publishedAt === 'string' ? post.data.publishedAt : post.data.publishedAt.toISOString()}>
+						{formatDate(typeof post.data.publishedAt === 'string' ? new Date(post.data.publishedAt) : post.data.publishedAt)}
+					</time>
+				)}
+				<span>•</span>
+				<span>{getReadingTime(post.data.content)} okuma süresi</span>
+				<span>•</span>
+				<span style="display: inline-flex; align-items: center; gap: 0.25rem; color: #16a34a; font-weight: 600;">
+					✓ Piyasa Editoryal Doğrulandı
+				</span>
+			</div>
+		</header>
+
+		<!-- Piyasa Core Data Cross-Link Callout for SEO & Conversion -->
+		<section class="piyasa-data-bridge" style="background: linear-gradient(135deg, rgba(37,99,235,0.06), rgba(16,185,129,0.06)); border: 1px solid rgba(37,99,235,0.2); border-radius: 12px; padding: 1.25rem 1.5rem; margin-bottom: 2.5rem;">
+			<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+				<div>
+					<span style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; color: #2563eb;">CANLI PİYASA VERİSİ</span>
+					<h3 style="margin: 0.25rem 0 0.5rem 0; font-size: 1.125rem; font-weight: 700; color: var(--color-text);">
+						Bu mesleğe ait gerçek maaş istatistikleri ve dağılımını inceleyin
+					</h3>
+					<p style="margin: 0; font-size: 0.875rem; color: var(--color-text-secondary);">
+						Piyasa Tukey IQR algoritmasıyla filtrelenmiş 25., 50. (medyan) ve 75. yüzdelik dilim maaş verilerini görün.
+					</p>
+				</div>
+				<a href="/meslekler/yazilim-muhendisi" style="display: inline-flex; align-items: center; gap: 0.5rem; background: #2563eb; color: #ffffff; padding: 0.625rem 1.25rem; border-radius: 8px; font-weight: 600; font-size: 0.875rem; text-decoration: none; white-space: nowrap;">
+					Meslek Verilerini Gör &rarr;
+				</a>
+			</div>
+		</section>
+
+		<!-- Article Body -->
+		<div class="article-body" style="font-size: 1.125rem; line-height: 1.8; color: var(--color-text);">
+			{typeof post.data.content === "string" ? (
+				<div set:html={post.data.content} />
+			) : (
+				<PortableText value={post.data.content} />
+			)}
+		</div>
+
+		<!-- Footer Call to Action -->
+		<footer style="margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+			<a href="/rehber" style="color: #2563eb; text-decoration: none; font-weight: 600; font-size: 0.9375rem;">
+				&larr; Tüm Rehberlere Dön
+			</a>
+			<div style="display: flex; gap: 1rem;">
+				<a href="/maas-bildir" style="background: #0f172a; color: white; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none; font-size: 0.875rem; font-weight: 600;">
+					Maaş Verisi Bildir
+				</a>
+				<a href="/maas-hesapla" style="border: 1px solid var(--color-border); padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none; font-size: 0.875rem; font-weight: 600; color: var(--color-text);">
+					Maaş Hesapla
+				</a>
+			</div>
+		</footer>
+	</article>
+</Base>
