@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getAllProfessionsAsync } from '@/lib/professions';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const professions = await getAllProfessionsAsync();
