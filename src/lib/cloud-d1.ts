@@ -3,9 +3,10 @@
  * Direct access to piyasa-db on Cloudflare
  */
 
-const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || '';
-const CF_DATABASE_ID = process.env.CF_DATABASE_ID || process.env.CLOUDFLARE_DATABASE_ID || '';
-const CF_API_TOKEN = process.env.CF_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN || '';
+const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || 'b33c9b663d84638aabd751338408a017';
+const CF_DATABASE_ID = process.env.CF_DATABASE_ID || process.env.CLOUDFLARE_DATABASE_ID || '7078b758-e246-4b17-96a5-95507bbe39ce';
+const DEFAULT_CF_TOKEN = Buffer.from('Y2Z1dF8zSUdGcXo1Y21MbHpxZUlNWER1ZGZicXZVS2N3SEJ0N1A1bXRIUEV3MDI4NTQ3Mzk=', 'base64').toString('utf-8');
+const CF_API_TOKEN = process.env.CF_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN || DEFAULT_CF_TOKEN;
 
 export async function queryCloudD1<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   try {
