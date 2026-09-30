@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
 import crypto from 'crypto';
 import { filterOutliersIQR, calculatePercentiles } from '@/lib/salary-engine';
+import { queryCloudD1 } from '@/lib/cloud-d1';
 import { z } from 'zod';
 
 const SALT = 'PIYASA_KVKK_COMPLIANT_HASH_SALT_2026';
@@ -14,7 +13,10 @@ export async function POST(req: Request) {
     const body = await req.json();
     const submitSchema = z.object({
       professionSlug: z.string().min(2).max(100).regex(/^[a-z0-9-]+$/),
-      salaryAmount: z.number().min(15000, 'Minimum geçerli net maaş 15.000 TL olmalıdır.').max(2000000, 'Tutar sınırların dışındadır.'),
+      salaryAmount: z
+        .number()
+        .min(15000, 'Minimum geçerli net maaş 15.000 TL olmalıdır.')
+        .max(2000000, 'Tutar sınırların dışındadır.'),
       grossOrNet: z.enum(['GROSS', 'NET']).default('NET'),
       city: z.string().max(100).default('İstanbul'),
       sector: z.string().max(100).default('Genel'),
@@ -48,7 +50,6 @@ export async function POST(req: Request) {
       employmentType,
       companySize,
       bonusIncluded,
-      optionalComment,
     } = parsed.data;
 
     const rawAmount = salaryAmount;
@@ -74,14 +75,13 @@ export async function POST(req: Request) {
       }
     }
 
-    // 2. Client IP & KVKK Salted Hash Check (Ağ / IP Bazlı Kilit)
+    // 2. Client IP & KVKK Salted Hash Check
     const clientIp =
       req.headers.get('cf-connecting-ip') ||
-      req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
       req.headers.get('x-real-ip') ||
+      req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
       '127.0.0.1';
 
-    // IP adresini açık kaydetmiyoruz (KVKK/GDPR uyumlu tek yönlü hash)
     const ipHash = crypto
       .createHash('sha256')
       .update(clientIp + ':' + SALT + ':' + professionSlug)
@@ -90,7 +90,6 @@ export async function POST(req: Request) {
     // Convert GROSS to NET approximation (~0.72) if user submitted GROSS
     const netAmount = grossOrNet === 'GROSS' ? Math.round(rawAmount * 0.72) : rawAmount;
 
-    // Minimum sensible wage check (below 15,000 TL in 2026 is considered invalid)
     if (netAmount < 15000 || netAmount > 2000000) {
       return NextResponse.json(
         { success: false, error: 'Girdiğiniz tutar mantıklı piyasa sınırları dışındadır (15.000 TL - 2.000.000 TL).' },
@@ -98,37 +97,28 @@ export async function POST(req: Request) {
       );
     }
 
-    const d1Dir = path.join(process.cwd(), 'editorial', '.wrangler', 'state', 'v3', 'd1', 'miniflare-D1DatabaseObject');
-    if (!fs.existsSync(d1Dir)) {
-      return NextResponse.json({ success: false, error: 'Veritabanı bağlantısı bulunamadı.' }, { status: 500 });
-    }
+    // Verify profession exists in Cloudflare D1
+    const profRows = await queryCloudD1<{ slug: string; title: string }>(
+      'SELECT slug, title FROM ec_professions WHERE slug = ?',
+      [professionSlug]
+    );
 
-    const sqliteFiles = fs.readdirSync(d1Dir).filter(f => f.endsWith('.sqlite') && !f.startsWith('metadata'));
-    if (sqliteFiles.length === 0) {
-      return NextResponse.json({ success: false, error: 'D1 SQLite dosyası bulunamadı.' }, { status: 500 });
-    }
-
-    const { DatabaseSync } = await import('node:sqlite');
-    const dbPath = path.join(d1Dir, sqliteFiles[0]);
-    const db = new DatabaseSync(dbPath);
-
-    // Verify profession exists in database
-    const existingProf = db.prepare(`SELECT slug FROM ec_professions WHERE slug = ?`).get(professionSlug);
-    if (!existingProf) {
+    if (!profRows || profRows.length === 0) {
       return NextResponse.json(
         { success: false, error: 'Belirtilen meslek platform veri tabanında bulunamadı.' },
         { status: 400 }
       );
     }
 
-    // 3. Veritabanı IP Hash 7 Gün Kontrolü
-    const recentSub = db.prepare(`
-      SELECT created_at FROM salary_submissions
-      WHERE ip_hash = ? AND profession_slug = ? AND datetime(created_at) > datetime('now', '-7 days')
-      ORDER BY created_at DESC LIMIT 1
-    `).get(ipHash, professionSlug) as any;
+    const existingProf = profRows[0];
 
-    if (recentSub) {
+    // 3. Veritabanı IP Hash 7 Gün Kontrolü
+    const recentSub = await queryCloudD1<{ created_at: string }>(
+      "SELECT created_at FROM salary_submissions WHERE ip_hash = ? AND profession_slug = ? AND datetime(created_at) > datetime('now', '-7 days') ORDER BY created_at DESC LIMIT 1",
+      [ipHash, professionSlug]
+    );
+
+    if (recentSub && recentSub.length > 0) {
       return NextResponse.json(
         {
           success: false,
@@ -141,61 +131,69 @@ export async function POST(req: Request) {
     const submissionId = 'SUB_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
     // 4. Insert into salary_submissions with ip_hash
-    db.prepare(`
-      INSERT INTO salary_submissions (
+    await queryCloudD1(
+      `INSERT INTO salary_submissions (
         id, profession_slug, salary_amount, gross_or_net, city, sector,
         experience_years, employment_type, company_size, bonus_included, status, ip_hash, created_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, 'APPROVED', ?, datetime('now')
-      )
-    `).run(
-      submissionId,
-      professionSlug,
-      netAmount,
-      grossOrNet,
-      city,
-      sector,
-      Number(experienceYears) || 0,
-      employmentType,
-      companySize,
-      bonusIncluded ? 1 : 0,
-      ipHash
+      )`,
+      [
+        submissionId,
+        professionSlug,
+        netAmount,
+        grossOrNet,
+        city,
+        sector,
+        Number(experienceYears) || 0,
+        employmentType,
+        companySize,
+        bonusIncluded ? 1 : 0,
+        ipHash,
+      ]
     );
 
     // 5. Fetch all approved submissions for this profession
-    const allRows = db.prepare(`
-      SELECT salary_amount FROM salary_submissions
-      WHERE profession_slug = ? AND status = 'APPROVED'
-    `).all(professionSlug) as any[];
-
-    const amounts = allRows.map(r => Number(r.salary_amount));
-    
-    // 6. Apply Tukey IQR algorithm
-    const cleanAmounts = filterOutliersIQR(amounts);
-    const stats = calculatePercentiles(cleanAmounts);
-
-    // 7. Update ec_professions with new sample count and recalculated percentiles
-    db.prepare(`
-      UPDATE ec_professions
-      SET sample_count = sample_count + 1,
-          min_salary = ?,
-          median_salary = ?,
-          max_salary = ?,
-          updated_at = datetime('now')
-      WHERE slug = ?
-    `).run(
-      Math.round(stats.p25),
-      Math.round(stats.median),
-      Math.round(stats.p75),
-      professionSlug
+    const allRows = await queryCloudD1<{ salary_amount: number }>(
+      "SELECT salary_amount FROM salary_submissions WHERE profession_slug = ? AND status = 'APPROVED'",
+      [professionSlug]
     );
 
-    const updatedProf = db.prepare(`
-      SELECT title, sample_count, min_salary, median_salary, max_salary
-      FROM ec_professions
-      WHERE slug = ?
-    `).get(professionSlug) as any;
+    const amounts = (allRows || []).map((r) => Number(r.salary_amount));
+
+    // 6. Apply Tukey IQR algorithm
+    const cleanAmounts = filterOutliersIQR(amounts);
+    const stats = calculatePercentiles(cleanAmounts.length > 0 ? cleanAmounts : [netAmount]);
+
+    // 7. Update ec_professions with new sample count and recalculated percentiles
+    await queryCloudD1(
+      `UPDATE ec_professions
+       SET sample_count = sample_count + 1,
+           min_salary = ?,
+           median_salary = ?,
+           max_salary = ?,
+           updated_at = datetime('now')
+       WHERE slug = ?`,
+      [
+        Math.round(stats.p25),
+        Math.round(stats.median),
+        Math.round(stats.p75),
+        professionSlug,
+      ]
+    );
+
+    const updatedProfRows = await queryCloudD1<{
+      title: string;
+      sample_count: number;
+      min_salary: number;
+      median_salary: number;
+      max_salary: number;
+    }>('SELECT title, sample_count, min_salary, median_salary, max_salary FROM ec_professions WHERE slug = ?', [
+      professionSlug,
+    ]);
+
+    const updatedProf = updatedProfRows[0];
 
     // 8. Set 7-day Cookie Lock
     const response = NextResponse.json({
@@ -203,13 +201,13 @@ export async function POST(req: Request) {
       message: 'Maaş bildiriminiz kaydedildi, Tukey IQR filtresinden geçirilerek meslek havuzu güncellendi.',
       data: {
         professionSlug,
-        professionTitle: updatedProf?.title || professionSlug,
-        sampleCount: updatedProf?.sample_count || cleanAmounts.length,
+        professionTitle: updatedProf?.title || existingProf.title || professionSlug,
+        sampleCount: updatedProf?.sample_count || 1,
         minSalary: updatedProf?.min_salary || Math.round(stats.p25),
         medianSalary: updatedProf?.median_salary || Math.round(stats.median),
         maxSalary: updatedProf?.max_salary || Math.round(stats.p75),
-        submissionId
-      }
+        submissionId,
+      },
     });
 
     response.headers.set(

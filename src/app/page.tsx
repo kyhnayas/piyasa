@@ -27,13 +27,32 @@ import { SearchModal } from '@/components/SearchModal';
 export default function HomePage() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [newsletterEmail, setNewsletterEmail] = useState('');
+  const [newsletterLoading, setNewsletterLoading] = useState(false);
   const [newsletterSuccess, setNewsletterSuccess] = useState(false);
+  const [newsletterError, setNewsletterError] = useState<string | null>(null);
 
-  const handleNewsletterSubmit = (e: React.FormEvent) => {
+  const handleNewsletterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newsletterEmail) {
+    if (!newsletterEmail) return;
+    setNewsletterLoading(true);
+    setNewsletterError(null);
+
+    try {
+      const res = await fetch('/api/newsletter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: newsletterEmail, source: 'homepage_footer' }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Abonelik kaydedilemedi.');
+      }
       setNewsletterSuccess(true);
       setNewsletterEmail('');
+    } catch (err: any) {
+      setNewsletterError(err.message || 'Bir hata oluştu.');
+    } finally {
+      setNewsletterLoading(false);
     }
   };
 
@@ -385,22 +404,29 @@ export default function HomePage() {
                 ✓ Teşekkürler! Bülten aboneliğiniz alındı. İlk rapor Salı günü iletilecektir.
               </div>
             ) : (
-              <form onSubmit={handleNewsletterSubmit} className="flex flex-col sm:flex-row gap-2.5 pt-2">
-                <input
-                  type="email"
-                  required
-                  value={newsletterEmail}
-                  onChange={(e) => setNewsletterEmail(e.target.value)}
-                  placeholder="E-posta adresiniz..."
-                  className="px-4 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs sm:text-sm placeholder:text-slate-500 focus:outline-none focus:border-teal-500 flex-1"
-                />
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-xs sm:text-sm font-semibold transition-colors flex-shrink-0"
-                >
-                  Ücretsiz Abone Ol
-                </button>
-              </form>
+              <div className="space-y-2">
+                <form onSubmit={handleNewsletterSubmit} className="flex flex-col sm:flex-row gap-2.5 pt-2">
+                  <input
+                    type="email"
+                    required
+                    disabled={newsletterLoading}
+                    value={newsletterEmail}
+                    onChange={(e) => setNewsletterEmail(e.target.value)}
+                    placeholder="E-posta adresiniz..."
+                    className="px-4 py-2.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs sm:text-sm placeholder:text-slate-500 focus:outline-none focus:border-teal-500 flex-1 disabled:opacity-50"
+                  />
+                  <button
+                    type="submit"
+                    disabled={newsletterLoading}
+                    className="px-5 py-2.5 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 text-white text-xs sm:text-sm font-semibold transition-colors flex-shrink-0"
+                  >
+                    {newsletterLoading ? 'Kaydediliyor...' : 'Ücretsiz Abone Ol'}
+                  </button>
+                </form>
+                {newsletterError && (
+                  <p className="text-xs text-rose-400 font-medium">{newsletterError}</p>
+                )}
+              </div>
             )}
           </div>
         </div>

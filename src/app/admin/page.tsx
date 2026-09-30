@@ -13,7 +13,8 @@ import {
   ArrowUpRight, 
   LogOut, 
   ExternalLink,
-  Database
+  Database,
+  Mail
 } from 'lucide-react';
 
 export default async function AdminDashboardPage() {
@@ -29,6 +30,7 @@ export default async function AdminDashboardPage() {
   let totalSubmissions = 0;
   let recentDemands: any[] = [];
   let pendingSubscribersCount = 0;
+  let newsletterSubscribersCount = 0;
   let initialProfessions: any[] = [];
 
   try {
@@ -56,6 +58,11 @@ export default async function AdminDashboardPage() {
       "SELECT COUNT(*) as cnt FROM major_demand_requests WHERE email IS NOT NULL AND email != '' AND status = 'pending'"
     );
     if (leadRows && leadRows[0]) pendingSubscribersCount = Number(leadRows[0].cnt) || 0;
+
+    const nlRows = await queryCloudD1(
+      "SELECT COUNT(*) as cnt FROM newsletter_subscribers WHERE status = 'active'"
+    );
+    if (nlRows && nlRows[0]) newsletterSubscribersCount = Number(nlRows[0].cnt) || 0;
   } catch (err) {
     console.error('Cloudflare D1 query error:', err);
   }
@@ -75,7 +82,7 @@ export default async function AdminDashboardPage() {
               Piyasa Yönetim & Meslek Moderasyon Merkezi
             </h1>
             <p className="text-xs text-slate-400">
-              Buradan yeni meslek ve iş pozisyonları ekleyebilir, mevcut maaş sınırlarını doğrudan düzenleyebilirsiniz.
+              Buradan yeni meslek ve iş pozisyonları ekleyebilir, bülten abonelerini ve öğrenci taleplerini yönetebilirsiniz.
             </p>
           </div>
 
@@ -103,7 +110,7 @@ export default async function AdminDashboardPage() {
         </div>
 
         {/* Quick KPI Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
             <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
               <span>Canlı Meslekler</span>
@@ -111,6 +118,24 @@ export default async function AdminDashboardPage() {
             </div>
             <div className="text-2xl font-bold text-white">{professionCount}</div>
             <div className="text-[11px] text-teal-400">Cloudflare D1 Senkronize</div>
+          </div>
+
+          <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
+              <span>Bülten Aboneleri</span>
+              <Mail className="w-4 h-4 text-sky-400" />
+            </div>
+            <div className="text-2xl font-bold text-white">{newsletterSubscribersCount}</div>
+            <div className="text-[11px] text-sky-400">Haftalık Rapor Okuyucusu</div>
+          </div>
+
+          <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
+              <span>Bekleyen Öğrenci Lead</span>
+              <Users className="w-4 h-4 text-amber-400" />
+            </div>
+            <div className="text-2xl font-bold text-white">{pendingSubscribersCount}</div>
+            <div className="text-[11px] text-amber-400">Bildirim Bekleyen Öğrenci</div>
           </div>
 
           <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
@@ -124,25 +149,16 @@ export default async function AdminDashboardPage() {
 
           <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
             <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
-              <span>Bekleyen E-posta Lead</span>
-              <Users className="w-4 h-4 text-amber-400" />
-            </div>
-            <div className="text-2xl font-bold text-white">{pendingSubscribersCount}</div>
-            <div className="text-[11px] text-amber-400">Bildirim Bekleyen Öğrenci</div>
-          </div>
-
-          <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
-            <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
               <span>Veritabanı Durumu</span>
-              <CheckCircle className="w-4 h-4 text-sky-400" />
+              <CheckCircle className="w-4 h-4 text-teal-400" />
             </div>
-            <div className="text-xl font-bold text-emerald-400">Cloudflare D1 Aktif</div>
+            <div className="text-xl font-bold text-emerald-400">Cloudflare D1</div>
             <div className="text-[11px] text-slate-400">piyasa-db (Frankfurt EEUR)</div>
           </div>
         </div>
 
         {/* ========================================================================= */}
-        {/* MESLEK & İŞ YÖNETİM STÜDYOSU (ADD, EDIT, DELETE, LIST) */}
+        {/* MESLEK, BÜLTEN, TALEP & MAAŞ YÖNETİM STÜDYOSU */}
         {/* ========================================================================= */}
         <AdminProfessionsManager initialProfessions={initialProfessions} />
 

@@ -23,6 +23,15 @@ import {
   Check,
   Inbox,
   ArrowRight,
+  Download,
+  FileSpreadsheet,
+  CheckCheck,
+  Clock,
+  ShieldAlert,
+  Database,
+  RefreshCw,
+  Ban,
+  UserCheck,
 } from 'lucide-react';
 
 interface ProfessionItem {
@@ -58,18 +67,83 @@ interface SubscriberItem {
   created_at: string;
 }
 
-export function AdminProfessionsManager({ initialProfessions = [] }: { initialProfessions?: ProfessionItem[] }) {
-  const [activeTab, setActiveTab] = useState<'professions' | 'demands' | 'spark'>('professions');
+interface NewsletterItem {
+  id: number;
+  email: string;
+  source: string;
+  status: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+interface SalarySubmissionItem {
+  id: string;
+  profession_slug: string;
+  salary_amount: number;
+  gross_or_net: string;
+  city: string;
+  sector: string;
+  experience_years: number;
+  employment_type: string;
+  company_size: string;
+  bonus_included: number;
+  status: string;
+  ip_hash?: string;
+  created_at: string;
+}
+
+type TabType = 'professions' | 'newsletter' | 'demands' | 'submissions' | 'spark';
+
+// CSV Exporter Helper with UTF-8 BOM for Turkish character support in Excel
+function downloadCSV(filename: string, headers: string[], rows: (string | number | undefined | null)[][]) {
+  const content = [
+    headers.join(';'),
+    ...rows.map((row) =>
+      row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(';')
+    ),
+  ].join('\r\n');
+
+  const blob = new Blob(['\uFEFF' + content], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+export function AdminProfessionsManager({
+  initialProfessions = [],
+}: {
+  initialProfessions?: ProfessionItem[];
+}) {
+  const [activeTab, setActiveTab] = useState<TabType>('professions');
   const [professions, setProfessions] = useState<ProfessionItem[]>(initialProfessions);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
 
-  // Demands & Subscribers state
+  // Newsletter State
+  const [newsletterList, setNewsletterList] = useState<NewsletterItem[]>([]);
+  const [loadingNewsletter, setLoadingNewsletter] = useState(false);
+  const [newsletterSearch, setNewsletterSearch] = useState('');
+  const [newsletterFilter, setNewsletterFilter] = useState<'ALL' | 'active'>('ALL');
+  const [quickAddEmail, setQuickAddEmail] = useState('');
+  const [isAddingNewsletter, setIsAddingNewsletter] = useState(false);
+
+  // Demands & Student Leads state
   const [demands, setDemands] = useState<DemandItem[]>([]);
   const [subscribers, setSubscribers] = useState<SubscriberItem[]>([]);
   const [loadingDemands, setLoadingDemands] = useState(false);
+  const [demandsSearch, setDemandsSearch] = useState('');
   const [sendingMajorSlug, setSendingMajorSlug] = useState<string | null>(null);
+
+  // Salary Submissions Moderation State
+  const [submissionsList, setSubmissionsList] = useState<SalarySubmissionItem[]>([]);
+  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
+  const [submissionSearch, setSubmissionSearch] = useState('');
+  const [submissionStatusFilter, setSubmissionStatusFilter] = useState('ALL');
 
   // Copied prompt state
   const [copiedPromptIndex, setCopiedPromptIndex] = useState<number | null>(null);
@@ -78,6 +152,227 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
   const [isSparkRunning, setIsSparkRunning] = useState(false);
   const [sparkResult, setSparkResult] = useState<any | null>(null);
 
+  // Modal & Notification states
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Form state for professions
+  const [formData, setFormData] = useState<ProfessionItem>({
+    slug: '',
+    title: '',
+    category: 'Bilişim & SaaS',
+    isco_code: '2512',
+    description: '',
+    min_salary: 45000,
+    median_salary: 75000,
+    max_salary: 120000,
+    sample_count: 250,
+    grade: 'Grade B',
+    status: 'published',
+  });
+
+  const categories = Array.from(new Set(professions.map((p) => p.category))).filter(Boolean);
+
+  // Fetchers
+  const fetchProfessions = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/professions');
+      const data = await res.json();
+      if (data.success && data.data) {
+        setProfessions(data.data);
+      }
+    } catch (err: any) {
+      console.error('Fetch professions error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchNewsletter = async () => {
+    setLoadingNewsletter(true);
+    try {
+      const res = await fetch('/api/admin/newsletter');
+      const data = await res.json();
+      if (data.success && data.data) {
+        setNewsletterList(data.data);
+      }
+    } catch (err: any) {
+      console.error('Fetch newsletter error:', err);
+    } finally {
+      setLoadingNewsletter(false);
+    }
+  };
+
+  const fetchDemands = async () => {
+    setLoadingDemands(true);
+    try {
+      const res = await fetch('/api/admin/notify-subscribers');
+      const data = await res.json();
+      if (data.success) {
+        setDemands(data.demands || []);
+        setSubscribers(data.subscribers || []);
+      }
+    } catch (err: any) {
+      console.error('Fetch demands error:', err);
+    } finally {
+      setLoadingDemands(false);
+    }
+  };
+
+  const fetchSubmissions = async () => {
+    setLoadingSubmissions(true);
+    try {
+      const res = await fetch('/api/admin/submissions');
+      const data = await res.json();
+      if (data.success && data.data) {
+        setSubmissionsList(data.data);
+      }
+    } catch (err: any) {
+      console.error('Fetch submissions error:', err);
+    } finally {
+      setLoadingSubmissions(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProfessions();
+    fetchDemands();
+    fetchNewsletter();
+    fetchSubmissions();
+  }, []);
+
+  // Quick Add Newsletter Subscriber
+  const handleQuickAddNewsletter = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickAddEmail || !quickAddEmail.includes('@')) {
+      setNotification({ type: 'error', message: 'Lütfen geçerli bir e-posta adresi girin.' });
+      return;
+    }
+
+    setIsAddingNewsletter(true);
+    setNotification(null);
+    try {
+      const res = await fetch('/api/newsletter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: quickAddEmail, source: 'admin_manuel_kayit' }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Abone eklenemedi.');
+      }
+      setNotification({ type: 'success', message: `'${quickAddEmail}' başarıyla bültene abone yapıldı!` });
+      setQuickAddEmail('');
+      fetchNewsletter();
+    } catch (err: any) {
+      setNotification({ type: 'error', message: err.message });
+    } finally {
+      setIsAddingNewsletter(false);
+    }
+  };
+
+  // Delete Newsletter Subscriber
+  const handleDeleteNewsletter = async (id: number, email: string) => {
+    if (!window.confirm(`'${email}' adresini bülten abonelerinden kaldırmak istediğinizden emin misiniz?`)) return;
+
+    try {
+      const res = await fetch('/api/admin/newsletter', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, email }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNotification({ type: 'success', message: `'${email}' bülten listesinden silindi.` });
+        fetchNewsletter();
+      } else {
+        setNotification({ type: 'error', message: data.error || 'Silme işlemi başarısız.' });
+      }
+    } catch (err: any) {
+      setNotification({ type: 'error', message: err.message });
+    }
+  };
+
+  // Update Salary Submission Status
+  const handleUpdateSubmissionStatus = async (id: string, status: string) => {
+    try {
+      const res = await fetch('/api/admin/submissions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNotification({ type: 'success', message: `Maaş bildirimi durumu '${status}' olarak güncellendi.` });
+        fetchSubmissions();
+      } else {
+        setNotification({ type: 'error', message: data.error || 'Güncelleme başarısız.' });
+      }
+    } catch (err: any) {
+      setNotification({ type: 'error', message: err.message });
+    }
+  };
+
+  // Delete Salary Submission
+  const handleDeleteSubmission = async (id: string) => {
+    if (!window.confirm('Bu maaş bildirimini veritabanından kalıcı olarak silmek istediğinizden emin misiniz?')) return;
+
+    try {
+      const res = await fetch('/api/admin/submissions', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNotification({ type: 'success', message: 'Maaş bildirimi başarıyla silindi.' });
+        fetchSubmissions();
+      } else {
+        setNotification({ type: 'error', message: data.error || 'Silme işlemi başarısız.' });
+      }
+    } catch (err: any) {
+      setNotification({ type: 'error', message: err.message });
+    }
+  };
+
+  // Send major notifications to student leads
+  const handleSendNotification = async (majorSlug: string, majorName: string) => {
+    if (!window.confirm(`'${majorName}' için bekleyen öğrencilere duyuru e-postası göndermek istiyor musunuz?`)) {
+      return;
+    }
+
+    setSendingMajorSlug(majorSlug);
+    setNotification(null);
+
+    try {
+      const res = await fetch('/api/admin/notify-subscribers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ majorSlug }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'E-posta gönderiminde hata oluştu.');
+      }
+
+      setNotification({
+        type: 'success',
+        message: data.message || `Tebrikler! ${data.sentCount} öğrenciye e-posta duyurusu iletildi.`,
+      });
+
+      fetchDemands();
+    } catch (err: any) {
+      setNotification({ type: 'error', message: err.message });
+    } finally {
+      setSendingMajorSlug(null);
+    }
+  };
+
+  // Run Gemini Spark
   const handleRunSpark = async (forceMajorSlug?: string) => {
     setIsSparkRunning(true);
     setSparkResult(null);
@@ -101,7 +396,6 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
         message: data.message || 'Gemini Spark analizi tamamlandı ve meslekler yayına alındı!',
       });
 
-      // Refresh professions & demands
       fetchProfessions();
       fetchDemands();
     } catch (err: any) {
@@ -111,64 +405,61 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
     }
   };
 
-  // Modal states
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-
-  // Form state
-  const [formData, setFormData] = useState<ProfessionItem>({
-    slug: '',
-    title: '',
-    category: 'Bilişim & SaaS',
-    isco_code: '2512',
-    description: '',
-    min_salary: 45000,
-    median_salary: 75000,
-    max_salary: 120000,
-    sample_count: 250,
-    grade: 'Grade B',
-    status: 'published',
-  });
-
-  const categories = Array.from(new Set(professions.map((p) => p.category))).filter(Boolean);
-
-  const fetchProfessions = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/admin/professions');
-      const data = await res.json();
-      if (data.success && data.data) {
-        setProfessions(data.data);
-      }
-    } catch (err: any) {
-      console.error('Fetch professions error:', err);
-    } finally {
-      setLoading(false);
-    }
+  // Copy helper
+  const copyPrompt = (text: string, index: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedPromptIndex(index);
+    setTimeout(() => setCopiedPromptIndex(null), 2500);
   };
 
-  const fetchDemands = async () => {
-    setLoadingDemands(true);
-    try {
-      const res = await fetch('/api/admin/notify-subscribers');
-      const data = await res.json();
-      if (data.success) {
-        setDemands(data.demands || []);
-        setSubscribers(data.subscribers || []);
-      }
-    } catch (err: any) {
-      console.error('Fetch demands error:', err);
-    } finally {
-      setLoadingDemands(false);
-    }
+  // CSV Export Handlers
+  const handleExportNewsletterCSV = () => {
+    downloadCSV(
+      `piyasa-bulten-aboneleri-${new Date().toISOString().slice(0, 10)}.csv`,
+      ['ID', 'E-posta', 'Kayıt Kaynağı', 'Durum', 'Kayıt Tarihi'],
+      newsletterList.map((n) => [n.id, n.email, n.source, n.status, n.created_at])
+    );
   };
 
-  useEffect(() => {
-    fetchProfessions();
-    fetchDemands();
-  }, []);
+  const handleExportStudentsCSV = () => {
+    downloadCSV(
+      `piyasa-ogrenci-talepleri-${new Date().toISOString().slice(0, 10)}.csv`,
+      ['ID', 'E-posta', 'Talep Edilen Bölüm', 'Fakülte', 'Durum', 'Talep Tarihi'],
+      subscribers.map((s) => [s.id, s.email, s.major_name, s.faculty_name, s.status, s.created_at])
+    );
+  };
 
+  const handleExportSubmissionsCSV = () => {
+    downloadCSV(
+      `piyasa-maas-bildirimleri-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        'ID',
+        'Meslek Slug',
+        'Maaş Tutarı (TL)',
+        'Net/Brüt',
+        'Deneyim (Yıl)',
+        'Şehir',
+        'Sektör',
+        'Şirket Ölçeği',
+        'Durum',
+        'Tarih',
+      ],
+      submissionsList.map((s) => [
+        s.id,
+        s.profession_slug,
+        s.salary_amount,
+        s.gross_or_net,
+        s.experience_years,
+        s.city,
+        s.sector,
+        s.company_size,
+        s.status,
+        s.created_at,
+      ])
+    );
+  };
+
+  // Profession Modal Handlers
   const handleOpenAdd = () => {
     setFormData({
       slug: '',
@@ -197,7 +488,7 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
     setIsModalOpen(true);
   };
 
-  const handleDelete = async (slug: string, title: string) => {
+  const handleDeleteProfession = async (slug: string, title: string) => {
     if (!window.confirm(`'${title}' mesleğini silmek istediğinizden emin misiniz?`)) return;
 
     try {
@@ -216,7 +507,7 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmitProfession = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setNotification(null);
@@ -248,55 +539,41 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
     }
   };
 
-  const handleSendNotification = async (majorSlug: string, majorName: string) => {
-    if (!window.confirm(`'${majorName}' için bekleyen öğrencilere duyuru e-postası göndermek istiyor musunuz?`)) {
-      return;
-    }
-
-    setSendingMajorSlug(majorSlug);
-    setNotification(null);
-
-    try {
-      const res = await fetch('/api/admin/notify-subscribers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ majorSlug }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'E-posta gönderiminde hata oluştu.');
-      }
-
-      setNotification({
-        type: 'success',
-        message: data.message || `${data.sentCount} öğrenciye e-posta gönderildi!`,
-      });
-
-      fetchDemands();
-    } catch (err: any) {
-      setNotification({ type: 'error', message: err.message });
-    } finally {
-      setSendingMajorSlug(null);
-    }
-  };
-
-  const copyPrompt = (text: string, index: number) => {
-    navigator.clipboard.writeText(text);
-    setCopiedPromptIndex(index);
-    setTimeout(() => setCopiedPromptIndex(null), 2500);
-  };
-
+  // Filtered lists
   const filteredProfessions = professions.filter((p) => {
     const matchesSearch =
       p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.slug.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.category.toLowerCase().includes(searchQuery.toLowerCase());
-
     const matchesCategory = selectedCategory === 'ALL' || p.category === selectedCategory;
-
     return matchesSearch && matchesCategory;
+  });
+
+  const filteredNewsletter = newsletterList.filter((item) => {
+    const matchesSearch = item.email.toLowerCase().includes(newsletterSearch.toLowerCase());
+    const matchesFilter = newsletterFilter === 'ALL' || item.status === newsletterFilter;
+    return matchesSearch && matchesFilter;
+  });
+
+  const filteredSubscribers = subscribers.filter((s) => {
+    if (!demandsSearch) return true;
+    const q = demandsSearch.toLowerCase();
+    return (
+      s.email.toLowerCase().includes(q) ||
+      s.major_name.toLowerCase().includes(q) ||
+      s.faculty_name.toLowerCase().includes(q)
+    );
+  });
+
+  const filteredSubmissions = submissionsList.filter((item) => {
+    const matchesSearch =
+      !submissionSearch ||
+      item.profession_slug.toLowerCase().includes(submissionSearch.toLowerCase()) ||
+      item.city.toLowerCase().includes(submissionSearch.toLowerCase()) ||
+      item.sector.toLowerCase().includes(submissionSearch.toLowerCase());
+    const matchesStatus =
+      submissionStatusFilter === 'ALL' || item.status === submissionStatusFilter;
+    return matchesSearch && matchesStatus;
   });
 
   return (
@@ -305,7 +582,7 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
         <button
           onClick={() => setActiveTab('professions')}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
             activeTab === 'professions'
               ? 'bg-teal-500/20 text-teal-300 border border-teal-500/40 shadow-sm'
               : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
@@ -317,36 +594,66 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
 
         <button
           onClick={() => {
+            setActiveTab('newsletter');
+            fetchNewsletter();
+          }}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+            activeTab === 'newsletter'
+              ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm'
+              : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+          }`}
+        >
+          <Mail className="w-4 h-4 text-sky-400" />
+          <span>Haftalık Bülten Aboneleri ({newsletterList.length})</span>
+        </button>
+
+        <button
+          onClick={() => {
             setActiveTab('demands');
             fetchDemands();
           }}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
             activeTab === 'demands'
               ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
               : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
           }`}
         >
-          <Users className="w-4 h-4" />
+          <Users className="w-4 h-4 text-indigo-400" />
           <span>Öğrenci Talepleri & E-postalar ({subscribers.length})</span>
         </button>
 
         <button
+          onClick={() => {
+            setActiveTab('submissions');
+            fetchSubmissions();
+          }}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+            activeTab === 'submissions'
+              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+              : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+          }`}
+        >
+          <Database className="w-4 h-4 text-emerald-400" />
+          <span>Maaş Moderasyon Havuzu ({submissionsList.length})</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('spark')}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
             activeTab === 'spark'
               ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
               : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
           }`}
         >
           <Sparkles className="w-4 h-4 text-amber-400" />
-          <span>Gemini Spark Günlük Asistanı</span>
+          <span>Gemini Spark Asistanı</span>
         </button>
       </div>
 
-      {/* Global Notification */}
+      {/* Global Notification Banner */}
       {notification && (
         <div
-          className={`p-4 rounded-2xl flex items-center justify-between text-xs font-semibold ${
+          className={`p-4 rounded-2xl flex items-center justify-between text-xs font-semibold animate-in fade-in duration-200 ${
             notification.type === 'success'
               ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
               : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
@@ -360,143 +667,148 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
             )}
             <span>{notification.message}</span>
           </div>
-          <button
-            onClick={() => setNotification(null)}
-            className="p-1 rounded-md hover:bg-white/10 text-slate-400 hover:text-white"
-          >
-            <X className="w-3.5 h-3.5" />
+          <button onClick={() => setNotification(null)} className="p-1 hover:opacity-75">
+            <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
-      {/* TAB 1: PROFESSIONS MANAGER */}
+      {/* ========================================================================= */}
+      {/* TAB 1: MESLEKLER & MAAŞLAR */}
+      {/* ========================================================================= */}
       {activeTab === 'professions' && (
         <>
-          {/* Action Header & Filters */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
-            <div className="flex flex-1 items-center gap-3">
-              {/* Search */}
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-900 p-4 rounded-2xl border border-slate-800">
+            <div className="flex flex-1 items-center space-x-2">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Meslek unvanı veya slug ara..."
+                  placeholder="Meslek adı, slug veya ISCO kodu ile ara..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 bg-slate-950/80 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-colors"
+                  className="w-full pl-9 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
                 />
               </div>
 
-              {/* Category Filter */}
               <div className="relative">
                 <select
                   value={selectedCategory}
                   onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="px-3 py-2 bg-slate-950/80 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-teal-500 transition-colors cursor-pointer"
+                  className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-teal-500 cursor-pointer"
                 >
-                  <option value="ALL">Tüm Sektörler ({categories.length})</option>
-                  {categories.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
+                  <option value="ALL">Tüm Kategoriler ({professions.length})</option>
+                  {categories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
                     </option>
                   ))}
                 </select>
               </div>
             </div>
 
-            {/* Add Button */}
-            <button
-              onClick={handleOpenAdd}
-              className="flex items-center justify-center space-x-2 px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold transition-all shadow-md hover:shadow-teal-500/20 active:scale-95"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Yeni Meslek / İş Ekle</span>
-            </button>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={fetchProfessions}
+                className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition-colors"
+                title="Listeyi Yenile"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                <span>Yenile</span>
+              </button>
+
+              <button
+                onClick={handleOpenAdd}
+                className="flex items-center justify-center space-x-1.5 px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold transition-all shadow-md active:scale-95 flex-shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Yeni Meslek Ekle</span>
+              </button>
+            </div>
           </div>
 
           {/* Professions Table */}
           <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-            <div className="p-5 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Briefcase className="w-4 h-4 text-teal-400" />
-                <h2 className="text-sm font-bold text-white">
-                  Canlı Meslek Veri Tabanı ({filteredProfessions.length} Meslek)
-                </h2>
-              </div>
-              <span className="text-[11px] text-slate-400">Bulut Depolama: Cloudflare D1</span>
-            </div>
-
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-950/80 text-slate-400 uppercase tracking-wider text-[10px] border-b border-slate-800">
                   <tr>
                     <th className="py-3 px-4">Meslek Unvanı</th>
-                    <th className="py-3 px-4">Kategori / Sektör</th>
-                    <th className="py-3 px-4 text-right">Taban Net (P25)</th>
-                    <th className="py-3 px-4 text-right">Medyan Net</th>
-                    <th className="py-3 px-4 text-right">Tavan Net (P75)</th>
+                    <th className="py-3 px-4">Kategori</th>
+                    <th className="py-3 px-4 text-center">TÜİK / ISCO</th>
+                    <th className="py-3 px-4 text-right">P25 Taban</th>
+                    <th className="py-3 px-4 text-right">P50 Medyan</th>
+                    <th className="py-3 px-4 text-right">P75 Tavan</th>
                     <th className="py-3 px-4 text-center">Örneklem</th>
-                    <th className="py-3 px-4 text-center">Durum</th>
+                    <th className="py-3 px-4 text-center">Güven</th>
                     <th className="py-3 px-4 text-right">İşlemler</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 font-medium">
                   {filteredProfessions.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-10 text-center text-slate-500 text-xs">
-                        {loading ? 'Meslekler yükleniyor...' : 'Arama kriterine uygun meslek bulunamadı.'}
+                      <td colSpan={9} className="py-8 text-center text-slate-500 text-xs">
+                        Arama kriterlerine uygun meslek bulunamadı.
                       </td>
                     </tr>
                   ) : (
-                    filteredProfessions.map((p, idx) => (
-                      <tr key={idx} className="hover:bg-slate-800/40 transition-colors">
+                    filteredProfessions.map((p) => (
+                      <tr key={p.slug} className="hover:bg-slate-800/40 transition-colors">
                         <td className="py-3 px-4">
-                          <div className="font-bold text-white text-sm">{p.title}</div>
-                          <div className="text-[10px] text-slate-500 font-mono">/meslekler/{p.slug}</div>
+                          <div className="font-bold text-white text-sm flex items-center space-x-2">
+                            <span>{p.title}</span>
+                            <a
+                              href={`/meslek/${p.slug}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-slate-500 hover:text-teal-400"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-mono">/meslek/{p.slug}</div>
                         </td>
-                        <td className="py-3 px-4">
-                          <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 text-[11px]">
-                            {p.category}
-                          </span>
+                        <td className="py-3 px-4 text-slate-400">{p.category}</td>
+                        <td className="py-3 px-4 text-center font-mono text-[11px] text-slate-400">
+                          {p.isco_code || '-'}
                         </td>
-                        <td className="py-3 px-4 text-right text-slate-400">
-                          {Number(p.min_salary).toLocaleString('tr-TR')} ₺
+                        <td className="py-3 px-4 text-right font-mono text-slate-400">
+                          {p.min_salary ? p.min_salary.toLocaleString('tr-TR') + ' ₺' : '-'}
                         </td>
-                        <td className="py-3 px-4 text-right font-bold text-teal-400">
-                          {Number(p.median_salary).toLocaleString('tr-TR')} ₺
+                        <td className="py-3 px-4 text-right font-mono font-bold text-teal-300">
+                          {p.median_salary ? p.median_salary.toLocaleString('tr-TR') + ' ₺' : '-'}
                         </td>
-                        <td className="py-3 px-4 text-right text-slate-400">
-                          {Number(p.max_salary).toLocaleString('tr-TR')} ₺
+                        <td className="py-3 px-4 text-right font-mono text-slate-400">
+                          {p.max_salary ? p.max_salary.toLocaleString('tr-TR') + ' ₺' : '-'}
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono text-slate-400">
+                          {p.sample_count || 100}
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <span className="text-[11px] text-slate-400">{p.sample_count || 150}</span>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                            {p.status || 'Yayında'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right space-x-1.5 whitespace-nowrap">
-                          <a
-                            href={`/meslekler/${p.slug}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            title="Sitede Canlı Gör"
-                            className="inline-flex p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              p.grade === 'Grade A'
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                : p.grade === 'Grade B'
+                                ? 'bg-teal-500/10 text-teal-400 border border-teal-500/30'
+                                : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                            }`}
                           >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </a>
+                            {p.grade || 'Grade B'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right space-x-1.5">
                           <button
                             onClick={() => handleOpenEdit(p)}
+                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
                             title="Düzenle"
-                            className="inline-flex p-1.5 rounded-lg bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 border border-teal-500/20 transition-colors"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => handleDelete(p.slug, p.title)}
+                            onClick={() => handleDeleteProfession(p.slug, p.title)}
+                            className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors"
                             title="Sil"
-                            className="inline-flex p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition-colors"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -511,7 +823,179 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
         </>
       )}
 
-      {/* TAB 2: DEMANDS & SUBSCRIBERS */}
+      {/* ========================================================================= */}
+      {/* TAB 2: HAFTALIK BÜLTEN ABONELERİ */}
+      {/* ========================================================================= */}
+      {activeTab === 'newsletter' && (
+        <div className="space-y-6">
+          {/* Quick Stats & Add Subscriber Bar */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="lg:col-span-2 bg-slate-900 p-5 rounded-3xl border border-slate-800 space-y-3">
+              <div className="flex items-center space-x-2">
+                <Mail className="w-4 h-4 text-sky-400" />
+                <h3 className="text-sm font-bold text-white">Hızlı Abone Ekle (Manuel Kayıt)</h3>
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Arkadaşınızı veya bültene doğrudan eklemek istediğiniz e-posta adresini buraya girerek anında Cloudflare D1 veritabanına kaydedebilirsiniz.
+              </p>
+              <form onSubmit={handleQuickAddNewsletter} className="flex flex-col sm:flex-row gap-2 pt-1">
+                <input
+                  type="email"
+                  required
+                  placeholder="abone@ornek.com..."
+                  value={quickAddEmail}
+                  onChange={(e) => setQuickAddEmail(e.target.value)}
+                  className="flex-1 px-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                />
+                <button
+                  type="submit"
+                  disabled={isAddingNewsletter}
+                  className="px-5 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center justify-center space-x-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{isAddingNewsletter ? 'Ekleniyor...' : 'Bültene Ekle'}</span>
+                </button>
+              </form>
+            </div>
+
+            <div className="bg-slate-900 p-5 rounded-3xl border border-slate-800 flex flex-col justify-between">
+              <div className="space-y-1">
+                <span className="text-[11px] text-slate-400 font-medium">Bülten İstatistikleri</span>
+                <div className="text-2xl font-bold text-white">
+                  {newsletterList.length}{' '}
+                  <span className="text-xs font-normal text-slate-400">Toplam Abone</span>
+                </div>
+                <div className="text-[11px] text-emerald-400 font-medium">
+                  {newsletterList.filter((n) => n.status === 'active').length} Aktif Gönderim Durumunda
+                </div>
+              </div>
+
+              <button
+                onClick={handleExportNewsletterCSV}
+                disabled={newsletterList.length === 0}
+                className="mt-4 flex items-center justify-center space-x-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sky-300 text-xs font-bold rounded-xl border border-slate-700 transition-all"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>CSV Olarak Dışa Aktar (Excel)</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Filter Bar */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-900 p-4 rounded-2xl border border-slate-800">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Abone e-posta adreslerinde ara..."
+                value={newsletterSearch}
+                onChange={(e) => setNewsletterSearch(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+              />
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <select
+                value={newsletterFilter}
+                onChange={(e: any) => setNewsletterFilter(e.target.value)}
+                className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-sky-500 cursor-pointer"
+              >
+                <option value="ALL">Tüm Durumlar ({newsletterList.length})</option>
+                <option value="active">Yalnızca Aktif Olanlar</option>
+              </select>
+
+              <button
+                onClick={fetchNewsletter}
+                className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition-colors"
+                title="Yenile"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingNewsletter ? 'animate-spin' : ''}`} />
+                <span>Yenile</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Newsletter Subscribers Table */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Mail className="w-4 h-4 text-sky-400" />
+                <h3 className="text-sm font-bold text-white">
+                  Kayıtlı Bülten Aboneleri Listesi ({filteredNewsletter.length})
+                </h3>
+              </div>
+              <span className="text-[11px] text-slate-400">Veritabanı: newsletter_subscribers</span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-950/80 text-slate-400 uppercase tracking-wider text-[10px] border-b border-slate-800">
+                  <tr>
+                    <th className="py-3 px-4">#</th>
+                    <th className="py-3 px-4">E-posta Adresi</th>
+                    <th className="py-3 px-4">Kayıt Kaynağı</th>
+                    <th className="py-3 px-4">Kayıt Tarihi</th>
+                    <th className="py-3 px-4 text-center">Durum</th>
+                    <th className="py-3 px-4 text-right">İşlem</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-medium">
+                  {filteredNewsletter.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-10 text-center text-slate-500 text-xs">
+                        {loadingNewsletter
+                          ? 'Aboneler yükleniyor...'
+                          : 'Henüz kayıtlı bülten abonesi bulunmuyor. Yukarıdaki formdan arkadaşınızı ekleyebilirsiniz.'}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredNewsletter.map((sub, idx) => (
+                      <tr key={sub.id || idx} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">{idx + 1}</td>
+                        <td className="py-3 px-4 font-mono font-bold text-sky-300 text-sm">
+                          {sub.email}
+                        </td>
+                        <td className="py-3 px-4 text-slate-400">
+                          <span className="px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800 text-[10px] text-slate-300">
+                            {sub.source || 'homepage_footer'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-slate-400">
+                          {sub.created_at ? new Date(sub.created_at).toLocaleString('tr-TR') : '-'}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              sub.status === 'active'
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                : 'bg-slate-800 text-slate-400 border border-slate-700'
+                            }`}
+                          >
+                            {sub.status === 'active' ? 'Aktif Abone' : 'Pasif'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={() => handleDeleteNewsletter(sub.id, sub.email)}
+                            className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors"
+                            title="Aboneliği Sil"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 3: ÖĞRENCİ TALEPLERİ & E-POSTALAR */}
+      {/* ========================================================================= */}
       {activeTab === 'demands' && (
         <div className="space-y-6">
           {/* Email Routing Info Banner */}
@@ -523,12 +1007,24 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
                   <h3 className="text-sm font-bold text-white">Cloudflare E-posta Yönlendirme (Aktif)</h3>
                 </div>
                 <p className="text-xs text-slate-300">
-                  <strong className="text-teal-300">info@piyasa.work</strong> ve tüm <strong className="text-teal-300">*@piyasa.work</strong> adreslerine gelen e-postalar doğrudan <strong className="text-white">kyhnayas@gmail.com</strong> kutunuza yönlendirilir.
+                  <strong className="text-teal-300">info@piyasa.work</strong> ve tüm{' '}
+                  <strong className="text-teal-300">*@piyasa.work</strong> adreslerine gelen e-postalar doğrudan{' '}
+                  <strong className="text-white">kyhnayas@gmail.com</strong> kutunuza yönlendirilir.
                 </p>
               </div>
-              <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-xs font-bold flex-shrink-0">
-                ● Gelen Kutusu Aktif
-              </span>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleExportStudentsCSV}
+                  disabled={subscribers.length === 0}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-teal-300 text-xs font-semibold border border-slate-700 transition-all"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Öğrenci Listesini CSV İndir</span>
+                </button>
+                <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-xs font-bold flex-shrink-0">
+                  ● Gelen Kutusu Aktif
+                </span>
+              </div>
             </div>
           </div>
 
@@ -593,7 +1089,11 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
                               }`}
                             >
                               <Send className="w-3 h-3" />
-                              <span>{isSending ? 'Gönderiliyor...' : `Duyuru Gönder (${deptPendingSubs.length})`}</span>
+                              <span>
+                                {isSending
+                                  ? 'Gönderiliyor...'
+                                  : `Duyuru Gönder (${deptPendingSubs.length})`}
+                              </span>
                             </button>
                           </td>
                         </tr>
@@ -606,38 +1106,62 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
           </div>
 
           {/* Subscribers Raw Log Table */}
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-            <div className="p-5 border-b border-slate-800 flex items-center justify-between">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl space-y-3">
+            <div className="p-5 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center space-x-2">
                 <Mail className="w-4 h-4 text-teal-400" />
-                <h3 className="text-sm font-bold text-white">E-posta Bırakan Öğrenci Listesi ({subscribers.length})</h3>
+                <h3 className="text-sm font-bold text-white">
+                  E-posta Bırakan Öğrenci Listesi ({filteredSubscribers.length})
+                </h3>
               </div>
-              <span className="text-[11px] text-slate-500">KVKK Korumalı Anonim Kayıt</span>
+
+              <div className="flex items-center space-x-2">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Öğrenci veya bölüm ara..."
+                    value={demandsSearch}
+                    onChange={(e) => setDemandsSearch(e.target.value)}
+                    className="pl-8 pr-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 w-48 sm:w-64"
+                  />
+                </div>
+                <button
+                  onClick={fetchDemands}
+                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl"
+                  title="Yenile"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingDemands ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
             </div>
-            <div className="overflow-x-auto max-h-72">
+
+            <div className="overflow-x-auto max-h-80">
               <table className="w-full text-left text-xs text-slate-300">
-                <thead className="bg-slate-950/80 text-slate-400 text-[10px] uppercase border-b border-slate-800">
+                <thead className="bg-slate-950/80 text-slate-400 text-[10px] uppercase border-b border-slate-800 sticky top-0 z-10">
                   <tr>
                     <th className="py-2.5 px-4">E-posta</th>
                     <th className="py-2.5 px-4">Talep Edilen Bölüm</th>
+                    <th className="py-2.5 px-4">Fakülte</th>
                     <th className="py-2.5 px-4">Tarih</th>
                     <th className="py-2.5 px-4 text-right">Durum</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/40">
-                  {subscribers.length === 0 ? (
+                  {filteredSubscribers.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="py-6 text-center text-slate-500">
-                        Henüz e-posta bırakan öğrenci bulunmuyor.
+                      <td colSpan={5} className="py-6 text-center text-slate-500">
+                        {loadingDemands ? 'Yükleniyor...' : 'Kayıtlı öğrenci e-postası bulunmuyor.'}
                       </td>
                     </tr>
                   ) : (
-                    subscribers.map((s, idx) => (
+                    filteredSubscribers.map((s, idx) => (
                       <tr key={idx} className="hover:bg-slate-800/30">
-                        <td className="py-2.5 px-4 font-mono text-teal-300">{s.email}</td>
-                        <td className="py-2.5 px-4 text-slate-300">{s.major_name}</td>
-                        <td className="py-2.5 px-4 text-slate-500">
-                          {s.created_at ? new Date(s.created_at).toLocaleDateString('tr-TR') : '-'}
+                        <td className="py-2.5 px-4 font-mono font-bold text-teal-300">{s.email}</td>
+                        <td className="py-2.5 px-4 text-white font-medium">{s.major_name}</td>
+                        <td className="py-2.5 px-4 text-slate-400">{s.faculty_name}</td>
+                        <td className="py-2.5 px-4 text-slate-400">
+                          {s.created_at ? new Date(s.created_at).toLocaleString('tr-TR') : '-'}
                         </td>
                         <td className="py-2.5 px-4 text-right">
                           <span
@@ -660,7 +1184,178 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
         </div>
       )}
 
-      {/* TAB 3: GEMINI SPARK ASSISTANT */}
+      {/* ========================================================================= */}
+      {/* TAB 4: MAAŞ BİLDİRİMLERİ & MODERASYON */}
+      {/* ========================================================================= */}
+      {activeTab === 'submissions' && (
+        <div className="space-y-6">
+          {/* Header & Filter Controls */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-900 p-4 rounded-2xl border border-slate-800">
+            <div className="flex flex-1 items-center space-x-2">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Meslek slug, şehir veya sektör ile ara..."
+                  value={submissionSearch}
+                  onChange={(e) => setSubmissionSearch(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <select
+                value={submissionStatusFilter}
+                onChange={(e) => setSubmissionStatusFilter(e.target.value)}
+                className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-emerald-500 cursor-pointer"
+              >
+                <option value="ALL">Tüm Durumlar ({submissionsList.length})</option>
+                <option value="APPROVED">Onaylananlar (APPROVED)</option>
+                <option value="SUBMITTED">Bekleyenler (SUBMITTED)</option>
+                <option value="FLAGGED">Şüpheli / Flagged</option>
+                <option value="REJECTED">Reddedilenler (REJECTED)</option>
+              </select>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={fetchSubmissions}
+                className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition-colors"
+                title="Yenile"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingSubmissions ? 'animate-spin' : ''}`} />
+                <span>Yenile</span>
+              </button>
+
+              <button
+                onClick={handleExportSubmissionsCSV}
+                disabled={submissionsList.length === 0}
+                className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>CSV Olarak İndir</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Submissions Table */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Database className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-bold text-white">
+                  Kullanıcı Maaş Beyanları ({filteredSubmissions.length})
+                </h3>
+              </div>
+              <span className="text-[11px] text-slate-400">Veritabanı: salary_submissions</span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-950/80 text-slate-400 uppercase tracking-wider text-[10px] border-b border-slate-800">
+                  <tr>
+                    <th className="py-3 px-4">Meslek</th>
+                    <th className="py-3 px-4 text-right">Maaş Tutarı</th>
+                    <th className="py-3 px-4 text-center">Net / Brüt</th>
+                    <th className="py-3 px-4 text-center">Deneyim</th>
+                    <th className="py-3 px-4">Şehir & Sektör</th>
+                    <th className="py-3 px-4">Şirket</th>
+                    <th className="py-3 px-4">Tarih</th>
+                    <th className="py-3 px-4 text-center">Durum</th>
+                    <th className="py-3 px-4 text-right">Moderasyon</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-medium">
+                  {filteredSubmissions.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-10 text-center text-slate-500 text-xs">
+                        {loadingSubmissions
+                          ? 'Maaş bildirimleri taranıyor...'
+                          : 'Henüz kullanıcı maaş bildirimi bulunmuyor. (/maas-bildir sayfası üzerinden paylaşım yapıldığında burada listelenir)'}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredSubmissions.map((sub) => (
+                      <tr key={sub.id} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-white text-sm">{sub.profession_slug}</div>
+                          <div className="text-[10px] text-slate-500 font-mono">{sub.id}</div>
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-bold text-emerald-300 text-sm">
+                          {Number(sub.salary_amount).toLocaleString('tr-TR')} ₺
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span className="px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800 text-[10px] font-mono text-slate-300">
+                            {sub.gross_or_net}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center text-slate-300">
+                          {sub.experience_years} yıl
+                        </td>
+                        <td className="py-3 px-4 text-slate-400">
+                          <div>{sub.city}</div>
+                          <div className="text-[10px] text-slate-500">{sub.sector}</div>
+                        </td>
+                        <td className="py-3 px-4 text-slate-400">
+                          <span className="text-[11px]">{sub.company_size} çalışan</span>
+                        </td>
+                        <td className="py-3 px-4 text-slate-400 text-[11px]">
+                          {sub.created_at ? new Date(sub.created_at).toLocaleDateString('tr-TR') : '-'}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              sub.status === 'APPROVED'
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                : sub.status === 'FLAGGED'
+                                ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
+                                : sub.status === 'REJECTED'
+                                ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                                : 'bg-sky-500/10 text-sky-400 border border-sky-500/30'
+                            }`}
+                          >
+                            {sub.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right space-x-1.5">
+                          {sub.status !== 'APPROVED' && (
+                            <button
+                              onClick={() => handleUpdateSubmissionStatus(sub.id, 'APPROVED')}
+                              className="px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[11px] font-bold transition-colors"
+                              title="Onayla"
+                            >
+                              Onayla
+                            </button>
+                          )}
+                          {sub.status !== 'REJECTED' && (
+                            <button
+                              onClick={() => handleUpdateSubmissionStatus(sub.id, 'REJECTED')}
+                              className="px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-[11px] font-bold transition-colors"
+                              title="Reddet"
+                            >
+                              Reddet
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDeleteSubmission(sub.id)}
+                            className="p-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors"
+                            title="Sil"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 5: GEMINI SPARK ASSISTANT */}
+      {/* ========================================================================= */}
       {activeTab === 'spark' && (
         <div className="space-y-6">
           {/* Spark Intro Banner */}
@@ -729,13 +1424,17 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
                 </div>
                 {sparkResult.department && (
                   <div className="text-slate-300 text-[11px]">
-                    <strong>İncelenen Bölüm:</strong> {sparkResult.department.name} ({sparkResult.department.faculty}) • <strong>Seçim Sebebi:</strong> {sparkResult.department.reason}
+                    <strong>İncelenen Bölüm:</strong> {sparkResult.department.name} ({sparkResult.department.faculty}) •{' '}
+                    <strong>Seçim Sebebi:</strong> {sparkResult.department.reason}
                   </div>
                 )}
                 {sparkResult.createdProfessions && sparkResult.createdProfessions.length > 0 && (
                   <div className="flex flex-wrap gap-2 pt-1">
                     {sparkResult.createdProfessions.map((cp: any, idx: number) => (
-                      <span key={idx} className="px-2.5 py-1 rounded-lg bg-slate-900 border border-amber-500/30 text-amber-200 font-medium text-[11px]">
+                      <span
+                        key={idx}
+                        className="px-2.5 py-1 rounded-lg bg-slate-900 border border-amber-500/30 text-amber-200 font-medium text-[11px]"
+                      >
                         🎯 {cp.title} — {cp.median_salary.toLocaleString('tr-TR')} ₺ Net (Medyan)
                       </span>
                     ))}
@@ -745,9 +1444,8 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
             )}
           </div>
 
-          {/* Quick Prompts to Run Everyday */}
+          {/* Quick Prompts */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Prompt 1 */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 relative group">
               <div className="flex items-center justify-between">
                 <span className="px-2.5 py-1 rounded-lg bg-teal-500/10 text-teal-400 border border-teal-500/30 text-[10px] font-bold">
@@ -780,7 +1478,6 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
               </p>
             </div>
 
-            {/* Prompt 2 */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 relative group">
               <div className="flex items-center justify-between">
                 <span className="px-2.5 py-1 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 text-[10px] font-bold">
@@ -813,169 +1510,137 @@ export function AdminProfessionsManager({ initialProfessions = [] }: { initialPr
               </p>
             </div>
           </div>
-
-          {/* Sources and Philosophy Card */}
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
-            <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-              <TrendingUp className="w-4 h-4 text-teal-400" />
-              <span>Spark&apos;ın Kullandığı Doğrulanmış Kaynaklar & Metodoloji</span>
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs text-slate-300">
-              <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800">
-                <strong className="text-teal-400 block mb-1">1. İŞKUR</strong>
-                Açık iş ilanları veritabanı ve İl İstihdam Piyasası İhtiyaç Analizleri.
-              </div>
-              <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800">
-                <strong className="text-teal-400 block mb-1">2. TÜİK</strong>
-                Kazanç Yapısı Araştırması ve Hanehalkı İşgücü İstatistikleri.
-              </div>
-              <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800">
-                <strong className="text-teal-400 block mb-1">3. YÖK Atlas</strong>
-                Üniversite bölümleri mezun istihdam oranları ve çalışma alanları endeksi.
-              </div>
-              <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800">
-                <strong className="text-teal-400 block mb-1">4. Kariyer & LinkedIn</strong>
-                2026 yılı güncel iş ilanı ücret paketleri ve kıdem eşikleri.
-              </div>
-              <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800">
-                <strong className="text-teal-400 block mb-1">5. TCMB Verileri</strong>
-                Piyasa Katılımcıları Anketi enflasyon ve reel satın alma gücü düzeltmesi.
-              </div>
-              <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800">
-                <strong className="text-teal-400 block mb-1">6. Kullanıcı Bildirimleri</strong>
-                Piyasa.work /maas-bildir formuyla anonim iletilen gerçek maaş beyanları.
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
-      {/* CREATE / EDIT MODAL */}
+      {/* ========================================================================= */}
+      {/* ADD / EDIT PROFESSION MODAL */}
+      {/* ========================================================================= */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl p-6 space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl space-y-6 p-6">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <div>
-                <h3 className="text-base font-bold text-white">
-                  {formData.id ? 'Meslek Verisini Düzenle' : 'Yeni Meslek / İş Ekle'}
+              <div className="space-y-0.5">
+                <h3 className="text-lg font-bold text-white">
+                  {formData.slug && professions.some((p) => p.slug === formData.slug)
+                    ? 'Meslek & Maaş Verilerini Güncelle'
+                    : 'Veritabanına Yeni Meslek Ekle'}
                 </h3>
-                <p className="text-xs text-slate-400">Veriler Cloudflare D1 veritabanına doğrudan yazılacaktır.</p>
+                <p className="text-xs text-slate-400">
+                  Değişiklikler doğrudan Cloudflare D1 veritabanına işlenir ve sitede hemen görünür.
+                </p>
               </div>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white"
+                className="p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmitProfession} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Title */}
                 <div>
                   <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                    Meslek Başlığı *
+                    Meslek Başlığı (Unvan)
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="Örn: Yapay Zeka Prompt Uzmanı"
+                    placeholder="Örn: Frontend Developer"
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-colors"
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
                   />
                 </div>
-
-                {/* Slug */}
                 <div>
                   <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                    URL Kodu (Slug) - Boş bırakılırsa otomatik üretilir
+                    Slug (URL Uzantısı)
                   </label>
                   <input
                     type="text"
-                    placeholder="Örn: yapay-zeka-prompt-uzmani"
+                    placeholder="Örn: frontend-developer (boş bırakılırsa otomatik)"
                     value={formData.slug}
                     onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-colors"
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
                   />
                 </div>
+              </div>
 
-                {/* Category */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                    Kategori / Sektör *
+                    Sektör / Kategori
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="Örn: Yazılım & Teknoloji"
+                    placeholder="Örn: Bilişim & Yazılım"
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-colors"
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
                   />
                 </div>
-
-                {/* ISCO Code */}
                 <div>
                   <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                    ISCO-08 Meslek Kodu
+                    ISCO-08 / TÜİK Meslek Kodu
                   </label>
                   <input
                     type="text"
                     placeholder="Örn: 2512"
                     value={formData.isco_code || ''}
                     onChange={(e) => setFormData({ ...formData, isco_code: e.target.value })}
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-colors"
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-teal-500"
                   />
                 </div>
               </div>
 
               {/* Salary Fields */}
-              <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-3">
+              <div className="p-4 bg-slate-950/60 rounded-2xl border border-slate-800 space-y-3">
                 <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider block">
-                  Aylık Net Ücret Skalası (2026 Güncel ₺)
+                  2026 Yılı Aylık Net Maaş Aralıkları (TL)
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-1">Minimum Net (P25) *</label>
+                    <label className="block text-[10px] text-slate-400 mb-1">P25 (Taban / Giriş)</label>
                     <input
                       type="number"
                       required
-                      min={0}
+                      min={15000}
                       step={500}
                       value={formData.min_salary}
                       onChange={(e) => setFormData({ ...formData, min_salary: Number(e.target.value) })}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-bold focus:outline-none focus:border-teal-500"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-teal-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-teal-400 font-bold mb-1">Medyan Net Maaş *</label>
+                    <label className="block text-[10px] text-slate-400 mb-1">P50 (Medyan Maaş)</label>
                     <input
                       type="number"
                       required
-                      min={0}
+                      min={15000}
                       step={500}
                       value={formData.median_salary}
                       onChange={(e) => setFormData({ ...formData, median_salary: Number(e.target.value) })}
-                      className="w-full px-3 py-2 bg-slate-900 border border-teal-500/50 rounded-xl text-xs text-teal-400 font-bold focus:outline-none focus:border-teal-500"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs font-mono font-bold text-teal-300 focus:outline-none focus:border-teal-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-1">Maksimum Net (P75) *</label>
+                    <label className="block text-[10px] text-slate-400 mb-1">P75 (Tavan / Kıdemli)</label>
                     <input
                       type="number"
                       required
-                      min={0}
+                      min={15000}
                       step={500}
                       value={formData.max_salary}
                       onChange={(e) => setFormData({ ...formData, max_salary: Number(e.target.value) })}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-bold focus:outline-none focus:border-teal-500"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-teal-500"
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Sample Count & Grade & Status */}
+              {/* Sample & Grade & Status */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1.5">

@@ -3,12 +3,18 @@ import { cookies } from 'next/headers';
 import { queryCloudD1 } from '@/lib/cloud-d1';
 import { sendEmail, generateMajorPublishedEmailHtml } from '@/lib/mailer';
 import { ALL_FACULTY_CLUSTERS } from '@/data/all-university-departments';
+import { verifyAdminToken } from '@/lib/admin-auth';
+
+function checkAdminAuth(token?: string): boolean {
+  if (!token) return false;
+  return verifyAdminToken(token) || token === 'piyasa_admin_authenticated_2026';
+}
 
 export async function GET() {
   const cookieStore = await cookies();
-  const token = cookieStore.get('admin_token')?.value;
+  const token = cookieStore.get('piyasa_admin_token')?.value || cookieStore.get('admin_token')?.value;
 
-  if (token !== 'piyasa_admin_authenticated_2026') {
+  if (!checkAdminAuth(token)) {
     return NextResponse.json({ success: false, error: 'Yetkisiz erişim' }, { status: 401 });
   }
 
@@ -43,9 +49,9 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const cookieStore = await cookies();
-  const token = cookieStore.get('admin_token')?.value;
+  const token = cookieStore.get('piyasa_admin_token')?.value || cookieStore.get('admin_token')?.value;
 
-  if (token !== 'piyasa_admin_authenticated_2026') {
+  if (!checkAdminAuth(token)) {
     return NextResponse.json({ success: false, error: 'Yetkisiz erişim' }, { status: 401 });
   }
 

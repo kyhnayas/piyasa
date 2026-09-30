@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const cookieStore = await cookies();
-  const token = cookieStore.get('admin_token')?.value;
+  const token = cookieStore.get('piyasa_admin_token')?.value || cookieStore.get('admin_token')?.value;
 
   if (!isAuthorized(req, token)) {
     return NextResponse.json({ success: false, error: 'Yetkisiz erişim' }, { status: 401 });
