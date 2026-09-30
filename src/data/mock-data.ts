@@ -18,6 +18,14 @@ export interface ProfessionData {
   skills: string[];
   certifications: { name: string; issuer: string; isAffiliate?: boolean; url?: string }[];
   interviewQuestions?: { question: string; category: string; tip: string }[];
+  legalRequirement?: {
+    isRegulated: boolean;
+    lawName?: string;
+    chamber?: string;
+    requiredDegree: string;
+    licenseOrRegistry?: string;
+    summaryText: string;
+  };
   careerLadder: {
     level: string;
     years: string;

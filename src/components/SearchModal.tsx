@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Search, X, Briefcase, Building2, Award, ArrowRight } from 'lucide-react';
-import { PROFESSIONS_DATA } from '@/data/mock-data';
+import { PROFESSIONS_DATA, ProfessionData } from '@/data/mock-data';
 
 interface SearchModalProps {
   isOpen: boolean;
@@ -12,7 +12,20 @@ interface SearchModalProps {
 
 export function SearchModal({ isOpen, onClose }: SearchModalProps) {
   const [query, setQuery] = useState('');
+  const [professions, setProfessions] = useState<ProfessionData[]>(PROFESSIONS_DATA);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch dynamic professions list from API so newly added Spark jobs are searchable
+  useEffect(() => {
+    fetch('/api/professions')
+      .then(res => res.json())
+      .then(json => {
+        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+          setProfessions(json.data);
+        }
+      })
+      .catch(err => console.error('SearchModal fetch error:', err));
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -28,7 +41,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
   if (!isOpen) return null;
 
   // Türkçe karakter duyarlı normalizasyon
-  const normalize = (str: string) =>
+  const normalize = (str: string = '') =>
     str
       .toLocaleLowerCase('tr-TR')
       .replace(/ı/g, 'i')
@@ -42,13 +55,13 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
   const cleanQ = normalize(query);
 
   const filteredProfessions = cleanQ
-    ? PROFESSIONS_DATA.filter((p) =>
+    ? professions.filter((p) =>
         normalize(p.title).includes(cleanQ) ||
         normalize(p.summary).includes(cleanQ) ||
         normalize(p.category).includes(cleanQ) ||
-        p.skills.some((s) => normalize(s).includes(cleanQ))
+        (p.skills && p.skills.some((s) => normalize(s).includes(cleanQ)))
       )
-    : PROFESSIONS_DATA.slice(0, 3);
+    : professions.slice(0, 5);
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 sm:pt-24 px-4 bg-slate-950/50 backdrop-blur-sm transition-opacity">

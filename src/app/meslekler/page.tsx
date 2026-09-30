@@ -1,6 +1,6 @@
 import React from 'react';
 import { Metadata } from 'next';
-import { getAllProfessions } from '@/lib/professions';
+import { getAllProfessionsAsync } from '@/lib/professions';
 import { ProfessionsDirectoryView } from '@/components/ProfessionsDirectoryView';
 
 export const metadata: Metadata = {
@@ -11,8 +11,8 @@ export const metadata: Metadata = {
   },
 };
 
-export default function ProfessionsDirectoryPage() {
-  const professions = getAllProfessions();
+export default async function ProfessionsDirectoryPage() {
+  const professions = await getAllProfessionsAsync();
 
   return <ProfessionsDirectoryView initialProfessions={professions} />;
 }

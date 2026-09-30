@@ -2,6 +2,7 @@ import { MetadataRoute } from 'next';
 import fs from 'fs';
 import path from 'path';
 import { getAllProfessions } from '@/lib/professions';
+import { queryCloudD1 } from '@/lib/cloud-d1';
 import { TURKEY_81_CITIES } from '@/data/turkey-cities';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
@@ -82,22 +83,43 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const topMetroSlugs = ['istanbul', 'ankara', 'izmir', 'bursa', 'antalya', 'kocaeli', 'adana', 'eskisehir'];
 
   try {
-    const d1Dir = path.join(process.cwd(), 'editorial', '.wrangler', 'state', 'v3', 'd1', 'miniflare-D1DatabaseObject');
     let profSlugs: { slug: string; updated_at?: string }[] = [];
     let postSlugs: { slug: string; updated_at?: string }[] = [];
 
-    if (fs.existsSync(d1Dir)) {
-      const sqliteFiles = fs.readdirSync(d1Dir).filter(f => f.endsWith('.sqlite') && !f.startsWith('metadata'));
-      if (sqliteFiles.length > 0) {
-        const { DatabaseSync } = await import('node:sqlite');
-        const db = new DatabaseSync(path.join(d1Dir, sqliteFiles[0]));
+    // 1. Primary: Query Cloudflare D1 (Live production database)
+    try {
+      const cloudProfs = await queryCloudD1<{ slug: string; updated_at?: string }>(
+        "SELECT slug, updated_at FROM ec_professions WHERE status = 'published' OR status IS NULL"
+      );
+      if (cloudProfs && cloudProfs.length > 0) {
+        profSlugs = cloudProfs;
+      }
+      const cloudPosts = await queryCloudD1<{ slug: string; updated_at?: string }>(
+        "SELECT slug, updated_at FROM ec_posts WHERE status = 'published'"
+      );
+      if (cloudPosts && cloudPosts.length > 0) {
+        postSlugs = cloudPosts;
+      }
+    } catch (d1Err) {
+      console.warn('Sitemap Cloudflare D1 query skipped/failed, trying local fallback:', d1Err);
+    }
 
-        profSlugs = db.prepare("SELECT slug, updated_at FROM ec_professions WHERE status = 'published' OR status IS NULL").all() as any[];
-        postSlugs = db.prepare("SELECT slug, updated_at FROM ec_posts WHERE status = 'published'").all() as any[];
+    // 2. Secondary: Local Miniflare sqlite fallback
+    if (profSlugs.length === 0) {
+      const d1Dir = path.join(process.cwd(), 'editorial', '.wrangler', 'state', 'v3', 'd1', 'miniflare-D1DatabaseObject');
+      if (fs.existsSync(d1Dir)) {
+        const sqliteFiles = fs.readdirSync(d1Dir).filter(f => f.endsWith('.sqlite') && !f.startsWith('metadata'));
+        if (sqliteFiles.length > 0) {
+          const { DatabaseSync } = await import('node:sqlite');
+          const db = new DatabaseSync(path.join(d1Dir, sqliteFiles[0]));
+
+          profSlugs = db.prepare("SELECT slug, updated_at FROM ec_professions WHERE status = 'published' OR status IS NULL").all() as any[];
+          postSlugs = db.prepare("SELECT slug, updated_at FROM ec_posts WHERE status = 'published'").all() as any[];
+        }
       }
     }
 
-    // Production Fallback if local miniflare SQLite is not available on disk
+    // 3. Tertiary: Mock data fallback
     if (profSlugs.length === 0) {
       profSlugs = getAllProfessions().map(p => ({ slug: p.slug }));
     }

@@ -20,11 +20,12 @@ import {
   Lightbulb,
   Sparkles,
 } from 'lucide-react';
-import { getProfessionFromD1, getAllProfessions } from '@/lib/professions';
+import { getProfessionAsync, getAllProfessionsAsync } from '@/lib/professions';
 import { AdBanner } from '@/components/AdBanner';
 import { CitySalaryCalculator } from '@/components/CitySalaryCalculator';
 import { TotalCompensationWidget } from '@/components/TotalCompensationWidget';
 import { TURKEY_81_CITIES } from '@/data/turkey-cities';
+import { CitySelector } from '@/components/CitySelector';
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -32,7 +33,7 @@ interface PageProps {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
-  const profession = getProfessionFromD1(slug);
+  const profession = await getProfessionAsync(slug);
   if (!profession) return { title: 'Meslek Bulunamadı | Piyasa' };
 
   return {
@@ -46,11 +47,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function ProfessionDetailPage({ params }: PageProps) {
   const { slug } = await params;
-  const profession = getProfessionFromD1(slug);
+  const profession = await getProfessionAsync(slug);
 
   if (!profession) {
     notFound();
   }
+
+  const allProfessions = await getAllProfessionsAsync();
 
   const { salaryStats, careerLadder, citySalaries, sectorSalaries, fieldExperiences, faq } = profession;
 
@@ -291,20 +294,26 @@ export default async function ProfessionDetailPage({ params }: PageProps) {
             professionTitle={profession.title}
           />
 
-          {/* Şehirlere Göre Hızlı pSEO Linkleri */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3">
-            <div className="flex items-center justify-between">
+          {/* Şehirlere Göre Hızlı pSEO Linkleri & 81 İl Seçici */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="space-y-0.5">
-                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-1.5">
                   <MapPin className="w-4 h-4 text-teal-700" />
                   <span>Şehirlere Göre {profession.title} Maaş Raporları</span>
                 </h3>
                 <p className="text-xs text-slate-500">
-                  TÜİK bölgesel yaşam maliyeti ve yerel alım gücüne göre hesaplanan şehir sayfaları:
+                  TÜİK bölgesel yaşam maliyeti ve alım gücü endeksine göre 81 il için detaylı ücretler:
                 </p>
               </div>
+              <div className="shrink-0">
+                <CitySelector
+                  professionSlug={profession.slug}
+                  professionTitle={profession.title}
+                />
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2 pt-1">
+            <div className="flex flex-wrap gap-2 pt-1 border-t border-slate-100">
               {['istanbul', 'ankara', 'izmir', 'bursa', 'antalya', 'kocaeli', 'adana', 'eskisehir', 'gaziantep', 'konya', 'samsun', 'trabzon'].map(cSlug => {
                 const c = TURKEY_81_CITIES.find(ci => ci.slug === cSlug);
                 if (!c) return null;
@@ -393,6 +402,46 @@ export default async function ProfessionDetailPage({ params }: PageProps) {
                       {tool}
                     </span>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Legal Requirements & Chamber Registration Callout */}
+            {profession.legalRequirement && (
+              <div className="p-4 sm:p-5 rounded-xl bg-amber-50/70 border border-amber-200/90 text-amber-950 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-amber-700 shrink-0" />
+                    <span className="font-bold text-sm text-amber-900">
+                      Yasal İmza Yetkisi, Diploma ve Oda Kaydı Şartları
+                    </span>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full bg-amber-200/70 text-amber-900 text-[10px] font-bold uppercase tracking-wider">
+                    Resmi Mevzuat
+                  </span>
+                </div>
+                <p className="text-xs text-amber-900/90 leading-relaxed">
+                  {profession.legalRequirement.summaryText}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 text-[11px] border-t border-amber-200/60">
+                  {profession.legalRequirement.lawName && (
+                    <div>
+                      <span className="font-semibold text-amber-800">Dayanak Kanun: </span>
+                      <span className="text-amber-950">{profession.legalRequirement.lawName}</span>
+                    </div>
+                  )}
+                  {profession.legalRequirement.chamber && (
+                    <div>
+                      <span className="font-semibold text-amber-800">Yetkili Meslek Odası: </span>
+                      <span className="text-amber-950">{profession.legalRequirement.chamber}</span>
+                    </div>
+                  )}
+                  {profession.legalRequirement.requiredDegree && (
+                    <div className="sm:col-span-2">
+                      <span className="font-semibold text-amber-800">Zorunlu Mezuniyet: </span>
+                      <span className="text-amber-950 font-bold">{profession.legalRequirement.requiredDegree}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -586,7 +635,7 @@ export default async function ProfessionDetailPage({ params }: PageProps) {
           <div className="p-5 bg-white rounded-xl border border-slate-200 shadow-xs space-y-3">
             <div className="text-xs font-bold text-slate-900">Benzer Meslekler</div>
             <div className="space-y-2">
-              {getAllProfessions()
+              {allProfessions
                 .filter((p) => p.slug !== profession.slug)
                 .slice(0, 5)
                 .map((p) => (

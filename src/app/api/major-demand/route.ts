@@ -11,24 +11,13 @@ const demandSchema = z.object({
   email: z.string().email('Geçerli bir e-posta adresi giriniz').max(100).optional().or(z.literal('')),
 });
 
-function getD1Db() {
-  const d1Dir = path.join(process.cwd(), 'editorial', '.wrangler', 'state', 'v3', 'd1', 'miniflare-D1DatabaseObject');
-  if (!fs.existsSync(d1Dir)) return null;
-  const files = fs.readdirSync(d1Dir).filter(f => f.endsWith('.sqlite') && !f.startsWith('metadata'));
-  if (files.length === 0) return null;
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { DatabaseSync } = require('node:sqlite');
-  return new DatabaseSync(path.join(d1Dir, files[0]));
-}
+import { queryCloudD1 } from '@/lib/cloud-d1';
 
 export async function GET() {
   try {
-    const db = getD1Db();
-    if (!db) {
-      return NextResponse.json({ success: true, counts: {} });
-    }
-
-    const rows = db.prepare('SELECT major_slug, vote_count FROM major_demand_counts').all() as any[];
+    const rows = await queryCloudD1<{ major_slug: string; vote_count: number }>(
+      'SELECT major_slug, vote_count FROM major_demand_counts'
+    );
     const counts: Record<string, number> = {};
     for (const r of rows) {
       counts[r.major_slug] = r.vote_count;
@@ -63,24 +52,22 @@ export async function POST(req: NextRequest) {
     const salt = 'piyasa-major-demand-salt-2026';
     const ipHash = crypto.createHash('sha256').update(clientIp + ':' + salt + ':' + majorSlug).digest('hex');
 
-    const db = getD1Db();
-    if (!db) {
-      return NextResponse.json({ success: true, updatedVotes: 1, message: 'Talebiniz alındı!' });
-    }
-
     // 7-day IP Cooldown check to prevent vote manipulation and database flooding
-    const recentRequest = db.prepare(`
-      SELECT created_at FROM major_demand_requests
-      WHERE ip_hash = ? AND major_slug = ? AND datetime(created_at) > datetime('now', '-7 days')
-      LIMIT 1
-    `).get(ipHash, majorSlug) as any;
+    const recentRequests = await queryCloudD1<{ created_at: string }>(
+      "SELECT created_at FROM major_demand_requests WHERE ip_hash = ? AND major_slug = ? AND datetime(created_at) > datetime('now', '-7 days') LIMIT 1",
+      [ipHash, majorSlug]
+    );
 
-    if (recentRequest) {
-      const currentCount = db.prepare('SELECT vote_count FROM major_demand_counts WHERE major_slug = ?').get(majorSlug) as any;
+    if (recentRequests.length > 0) {
+      const currentCounts = await queryCloudD1<{ vote_count: number }>(
+        'SELECT vote_count FROM major_demand_counts WHERE major_slug = ?',
+        [majorSlug]
+      );
+      const votes = currentCounts[0]?.vote_count || 1;
       return NextResponse.json(
         {
           success: false,
-          updatedVotes: currentCount ? currentCount.vote_count : 1,
+          updatedVotes: votes,
           error: `Bu ağ üzerinden '${majorName}' için son 7 gün içinde talep iletilmiştir. Veri tarafsızlığını korumak amacıyla haftada tek talebe izin verilmektedir.`,
         },
         { status: 429 }
@@ -88,22 +75,27 @@ export async function POST(req: NextRequest) {
     }
 
     // Increment vote count in major_demand_counts
-    db.prepare(`
-      INSERT INTO major_demand_counts (major_slug, major_name, faculty_name, vote_count, updated_at)
-      VALUES (?, ?, ?, 1, datetime('now'))
-      ON CONFLICT(major_slug) DO UPDATE SET
-        vote_count = vote_count + 1,
-        updated_at = datetime('now')
-    `).run(majorSlug, majorName, facultyName);
+    await queryCloudD1(
+      `INSERT INTO major_demand_counts (major_slug, major_name, faculty_name, vote_count, updated_at)
+       VALUES (?, ?, ?, 1, datetime('now'))
+       ON CONFLICT(major_slug) DO UPDATE SET
+         vote_count = vote_count + 1,
+         updated_at = datetime('now')`,
+      [majorSlug, majorName, facultyName]
+    );
 
     // Save lead request
-    db.prepare(`
-      INSERT INTO major_demand_requests (faculty_name, major_name, major_slug, email, ip_hash, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'pending', datetime('now'), datetime('now'))
-    `).run(facultyName, majorName, majorSlug, email ? email.trim() : null, ipHash);
+    await queryCloudD1(
+      `INSERT INTO major_demand_requests (faculty_name, major_name, major_slug, email, ip_hash, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', datetime('now'), datetime('now'))`,
+      [facultyName, majorName, majorSlug, email ? email.trim() : null, ipHash]
+    );
 
-    const currentCount = db.prepare('SELECT vote_count FROM major_demand_counts WHERE major_slug = ?').get(majorSlug) as any;
-    const votes = currentCount ? currentCount.vote_count : 1;
+    const updatedCounts = await queryCloudD1<{ vote_count: number }>(
+      'SELECT vote_count FROM major_demand_counts WHERE major_slug = ?',
+      [majorSlug]
+    );
+    const votes = updatedCounts[0]?.vote_count || 1;
 
     return NextResponse.json({
       success: true,

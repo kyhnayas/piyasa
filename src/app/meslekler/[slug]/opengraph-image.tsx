@@ -1,5 +1,5 @@
 import { ImageResponse } from 'next/og';
-import { getProfessionFromD1 } from '@/lib/professions';
+import { getProfessionAsync } from '@/lib/professions';
 
 export const runtime = 'nodejs';
 export const alt = 'Piyasa.work 2026 Maaş ve Kariyer Rehberi';
@@ -15,7 +15,7 @@ interface Props {
 
 export default async function Image({ params }: Props) {
   const { slug } = await params;
-  const profession = getProfessionFromD1(slug);
+  const profession = await getProfessionAsync(slug);
 
   const title = profession?.title || 'Meslek Maaş Rehberi';
   const category = profession?.category || 'Türkiye İş Piyasası';

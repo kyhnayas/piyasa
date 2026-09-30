@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/admin/spark/run",
+      "schedule": "0 8 * * *"
+    }
+  ]
+}

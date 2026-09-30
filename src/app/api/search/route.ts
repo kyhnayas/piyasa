@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getAllProfessions } from '@/lib/professions';
+import { getAllProfessionsAsync } from '@/lib/professions';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const q = (searchParams.get('q') || '').toLocaleLowerCase('tr-TR').trim();
-  const allProfessions = getAllProfessions();
+  const allProfessions = await getAllProfessionsAsync();
 
   if (!q) {
     return NextResponse.json({

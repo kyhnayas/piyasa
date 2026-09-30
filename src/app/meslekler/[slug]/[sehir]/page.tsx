@@ -15,10 +15,11 @@ import {
   ExternalLink,
   DollarSign
 } from 'lucide-react';
-import { getProfessionFromD1, getAllProfessions } from '@/lib/professions';
-import { TURKEY_81_CITIES, getCityBySlug } from '@/data/turkey-cities';
+import { getProfessionAsync } from '@/lib/professions';
+import { TURKEY_81_CITIES, getCityBySlug, getCityCostOfLivingAnalysis } from '@/data/turkey-cities';
 import { TotalCompensationWidget } from '@/components/TotalCompensationWidget';
 import { AdBanner } from '@/components/AdBanner';
+import { CitySelector } from '@/components/CitySelector';
 
 interface PageProps {
   params: Promise<{ slug: string; sehir: string }>;
@@ -26,7 +27,7 @@ interface PageProps {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug, sehir } = await params;
-  const profession = getProfessionFromD1(slug);
+  const profession = await getProfessionAsync(slug);
   const city = getCityBySlug(sehir);
 
   if (!profession || !city) {
@@ -52,7 +53,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function CityProfessionPage({ params }: PageProps) {
   const { slug, sehir } = await params;
-  const profession = getProfessionFromD1(slug);
+  const profession = await getProfessionAsync(slug);
   const city = getCityBySlug(sehir);
 
   if (!profession || !city) {
@@ -69,6 +70,8 @@ export default async function CityProfessionPage({ params }: PageProps) {
   const diffText = city.diffPercent >= 0 
     ? `+${city.diffPercent}% (Türkiye ortalamasının üzerinde)`
     : `${city.diffPercent}% (Bölgesel alım gücü ve kira dengesi)`;
+
+  const livingAnalysis = getCityCostOfLivingAnalysis(city.slug, profession.title);
 
   // Other major comparison cities
   const comparisonCities = TURKEY_81_CITIES.filter(c => 
@@ -173,13 +176,18 @@ export default async function CityProfessionPage({ params }: PageProps) {
               </p>
             </div>
 
-            {/* General Profession Link Button */}
-            <div className="shrink-0">
+            {/* Action Buttons: City Selector & General Link */}
+            <div className="shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <CitySelector
+                currentCitySlug={city.slug}
+                professionSlug={profession.slug}
+                professionTitle={profession.title}
+              />
               <Link
                 href={`/meslekler/${profession.slug}`}
-                className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-sm transition-all"
+                className="inline-flex items-center justify-center space-x-2 px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-sm transition-all"
               >
-                <span>Tüm Türkiye Raporunu Gör</span>
+                <span>Tüm Türkiye Raporu</span>
                 <ArrowRight className="w-4 h-4" />
               </Link>
             </div>
@@ -250,15 +258,15 @@ export default async function CityProfessionPage({ params }: PageProps) {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-600 leading-relaxed pt-2">
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-              <div className="font-bold text-slate-900 text-sm">Metropol Karşılaştırması:</div>
+              <div className="font-bold text-slate-900 text-sm">Metropol & Bölge Karşılaştırması:</div>
               <p>
-                {city.name} genelinde yaşam maliyeti ve konut kira giderleri İstanbul ve Ankara&apos;ya kıyasla daha dengeli bir seyir izlemektedir. Bu durum, nominal maaş farkına rağmen net birikim yapma potansiyelini doğrudan etkiler.
+                {livingAnalysis.metropolComparison}
               </p>
             </div>
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
               <div className="font-bold text-slate-900 text-sm">Pazarlıkta Dikkat Edilmesi Gerekenler:</div>
               <p>
-                {city.name} merkezli şirketlerle yapılan ücret görüşmelerinde, hibrit veya uzaktan çalışma durumunda İstanbul tabanlı şirket tekliflerini referans göstererek medyanın %10 ila %20 üzerine çıkabilirsiniz.
+                {livingAnalysis.bargainingTip}
               </p>
             </div>
           </div>

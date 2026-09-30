@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import './globals.css';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
@@ -43,6 +44,9 @@ export const metadata: Metadata = {
     index: true,
     follow: true,
   },
+  verification: {
+    google: '9UMfDVVvpxdF_deMiYJP5vXFlbxTrBuZlg3RKbj8iDE',
+  },
 };
 
 export default function RootLayout({
@@ -81,6 +85,24 @@ export default function RootLayout({
   return (
     <html lang="tr">
       <head>
+        <Script
+          src="https://www.googletagmanager.com/gtag/js?id=G-1XH51F3B3E"
+          strategy="afterInteractive"
+        />
+        <Script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-0088844737786444"
+          crossOrigin="anonymous"
+          strategy="afterInteractive"
+        />
+        <Script id="google-analytics" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'G-1XH51F3B3E');
+          `}
+        </Script>
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(rootSchema) }}

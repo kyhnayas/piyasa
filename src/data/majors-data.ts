@@ -99,8 +99,8 @@ export const UNIVERSITY_MAJORS: UniversityMajor[] = [
       { title: 'Serbest Avukat (Büro Sahibi)', slug: 'serbest-avukat', roleType: 'Dava & Danışmanlık', isco: '2611', avgSalary: '90.000 ₺' }
     ],
     criticalSkills: ['Sözleşme Taslağı Hazırlama', 'İngilizce Hukuk Terminolojisi', 'KVKK & GDPR Uyumluluğu', 'Uyuşmazlık Çözümü', 'Ticaret Hukuku'],
-    recommendedCertifications: ['Uluslararası Ticaret Hukuku (TOBB/Baro)', 'KVKK DPO Sertifikası', 'TOEFL / ILEC Hukuk İngilizcesi', 'Arabuluculuk Yetkisi'],
-    careerAdvice: 'Klasik dava avukatlığı yerine Şirketler Hukuku, Uluslararası Tahkim veya Bilişim Hukukuna odaklananlar çok daha yüksek gelir çarpanına ulaşır.'
+    recommendedCertifications: ['Baro Avukatlık Ruhsatnamesi', 'Adalet Bakanlığı Arabuluculuk Sicili', 'Uluslararası Ticaret Hukuku', 'TOEFL / ILEC Hukuk İngilizcesi'],
+    careerAdvice: '1136 Sayılı Avukatlık Kanunu uyarınca dava ve şirket vekilliği yapabilmek için Hukuk Fakültesi diploması, 1 yıllık yasal avukatlık stajı ve Baro Ruhsatı yasal zorunluluktur. Şirketler Hukuku, Uluslararası Tahkim ve Bilişim/KVKK alanında uzmanlaşanlar en yüksek gelir çarpanına ulaşır.'
   },
   {
     id: 'major-05',
@@ -119,8 +119,8 @@ export const UNIVERSITY_MAJORS: UniversityMajor[] = [
       { title: 'Mekanik Tasarım Uzmanı (CAD/CAM)', slug: 'mekanik-tasarim-uzmani', roleType: 'Modelleme', isco: '2144', avgSalary: '80.000 ₺' }
     ],
     criticalSkills: ['3D CAD (SolidWorks/CATIA)', 'Sonlu Elemanlar Analizi (ANSYS)', 'Termodinamik Modelleme', 'Talaşlı İmalat Bilgisi', 'Savunma Sanayii Standartları'],
-    recommendedCertifications: ['CSWP (Certified SolidWorks Professional)', 'ANSYS FEA Sertifikası', 'ASME Standartları Eğitimi', 'GD&T Geometrik Boyutlandırma'],
-    careerAdvice: 'Savunma sanayii ve otomotiv batarya/hibrit teknolojileri Türkiye\'de en yüksek maaş ödeyen makine istihdam alanlarıdır. ANSYS ve CATIA şarttır.'
+    recommendedCertifications: ['TMMOB MMO SMM & İmza Yetkisi Tescili', 'CSWP (Certified SolidWorks Professional)', 'ANSYS FEA Sertifikası', 'GD&T Geometrik Boyutlandırma'],
+    careerAdvice: '3458 Sayılı Kanun uyarınca mekanik proje onaylama, şantiye şefliği ve periyodik kontrol imza yetkisi için Makine Mühendisliği lisans diploması ve TMMOB Makine Mühendisleri Odası (MMO) kaydı zorunludur. Savunma sanayii ve otomotiv sektörlerinde ANSYS FEA ve CATIA uzmanlığı en yüksek maaş çarpanını sağlar.'
   },
   {
     id: 'major-06',

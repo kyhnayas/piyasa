@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { PROFESSIONS_DATA } from '@/data/mock-data';
-import { getProfessionFromD1 } from '@/lib/professions';
+import { getProfessionAsync } from '@/lib/professions';
 import { calculateMarketSalary } from '@/lib/salary-engine';
 
 const calculateSchema = z.object({
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
 
     const { professionSlug, citySlug, sectorSlug, experienceYears, careerLevel, employmentType } = parsed.data;
 
-    const prof = getProfessionFromD1(professionSlug) || PROFESSIONS_DATA.find((p) => p.slug === professionSlug) || PROFESSIONS_DATA[0];
+    const prof = (await getProfessionAsync(professionSlug)) || PROFESSIONS_DATA.find((p) => p.slug === professionSlug) || PROFESSIONS_DATA[0];
 
     const result = calculateMarketSalary(prof.salaryStats.median, {
       professionSlug,
